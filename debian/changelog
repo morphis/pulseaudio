@@ -1,10 +1,4 @@
-pulseaudio (1:6.0-0ubuntu9.2~morphis2) vivid; urgency=medium
-
-  * debian/rules: disable bluez4 support completely
-
- -- Simon Fels <simon.fels@canonical.com>  Wed, 16 Sep 2015 16:02:33 +0200
-
-pulseaudio (1:6.0-0ubuntu9.2~morphis1) vivid; urgency=medium
+pulseaudio (1:6.0-0ubuntu9.3) vivid; urgency=medium
 
   * debian/rules: don't disable bluez5 support
 
