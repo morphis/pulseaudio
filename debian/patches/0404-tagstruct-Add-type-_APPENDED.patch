@@ -1,0 +1,79 @@
+From adb577c905f2e930bdd2bfe630d6ca0ea286d6cb Mon Sep 17 00:00:00 2001
+From: Peter Meerwald <p.meerwald@bct-electronic.com>
+Date: Wed, 22 Oct 2014 14:59:11 +0200
+Subject: [PATCH 4/5] tagstruct: Add type _APPENDED
+
+add 128 bytes of storage in each tagstruct that will initially
+be used; if this storage is exceeded the type changes to _DYNAMIC
+
+v3: (thanks David Henningson)
+* add comments explaining how memory is handled by different tagstruct types
+v2: (thanks Alexander Patrakov)
+* replace constant 100 with GROW_TAG_SIZE (the increment in with a dynamic tagstruct grows when extend()ed)
+
+Signed-off-by: Peter Meerwald <pmeerw@pmeerw.net>
+---
+ src/pulsecore/tagstruct.c | 26 +++++++++++++++++++-------
+ 1 file changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/src/pulsecore/tagstruct.c b/src/pulsecore/tagstruct.c
+index e78fb4a..4206509 100644
+--- a/src/pulsecore/tagstruct.c
++++ b/src/pulsecore/tagstruct.c
+@@ -39,6 +39,8 @@
+ #include "tagstruct.h"
+ 
+ #define MAX_TAG_SIZE (64*1024)
++#define MAX_APPENDED_SIZE 128
++#define GROW_TAG_SIZE 100
+ 
+ struct pa_tagstruct {
+     uint8_t *data;
+@@ -46,19 +48,23 @@ struct pa_tagstruct {
+     size_t rindex;
+ 
+     enum {
+-        PA_TAGSTRUCT_FIXED,
+-        PA_TAGSTRUCT_DYNAMIC,
++        PA_TAGSTRUCT_FIXED, /* The tagstruct does not own the data, buffer was provided by caller. */
++        PA_TAGSTRUCT_DYNAMIC, /* Buffer owned by tagstruct, data must be freed. */
++        PA_TAGSTRUCT_APPENDED, /* Data points to appended buffer, used for small tagstructs. Will change to dynamic if needed. */
+     } type;
++    union {
++        uint8_t appended[MAX_APPENDED_SIZE];
++    } per_type;
+ };
+ 
+ pa_tagstruct *pa_tagstruct_new(void) {
+     pa_tagstruct*t;
+ 
+     t = pa_xnew(pa_tagstruct, 1);
+-    t->data = NULL;
+-    t->allocated = t->length = 0;
+-    t->rindex = 0;
+-    t->type = PA_TAGSTRUCT_DYNAMIC;
++    t->data = t->per_type.appended;
++    t->allocated = MAX_APPENDED_SIZE;
++    t->length = t->rindex = 0;
++    t->type = PA_TAGSTRUCT_APPENDED;
+ 
+     return t;
+ }
+@@ -92,7 +98,13 @@ static inline void extend(pa_tagstruct*t, size_t l) {
+     if (t->length+l <= t->allocated)
+         return;
+ 
+-    t->data = pa_xrealloc(t->data, t->allocated = t->length+l+100);
++    if (t->type == PA_TAGSTRUCT_DYNAMIC)
++        t->data = pa_xrealloc(t->data, t->allocated = t->length + l + GROW_TAG_SIZE);
++    else if (t->type == PA_TAGSTRUCT_APPENDED) {
++        t->type = PA_TAGSTRUCT_DYNAMIC;
++        t->data = pa_xmalloc(t->allocated = t->length + l + GROW_TAG_SIZE);
++        memcpy(t->data, t->per_type.appended, t->length);
++    }
+ }
+ 
+ static void write_u8(pa_tagstruct *t, uint8_t u) {
+-- 
+2.1.4
+

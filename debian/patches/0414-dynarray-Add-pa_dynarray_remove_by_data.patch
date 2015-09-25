@@ -1,0 +1,60 @@
+From 7d3879c07fe1cca778fbdc91eb1bdac9fba1137a Mon Sep 17 00:00:00 2001
+From: Tanu Kaskinen <tanu.kaskinen@linux.intel.com>
+Date: Wed, 7 Jan 2015 16:56:49 +0200
+Subject: [PATCH 3/4] dynarray: Add pa_dynarray_remove_by_data()
+
+---
+ src/pulsecore/dynarray.c | 20 ++++++++++++++++++++
+ src/pulsecore/dynarray.h |  5 +++++
+ 2 files changed, 25 insertions(+)
+
+diff --git a/src/pulsecore/dynarray.c b/src/pulsecore/dynarray.c
+index 3f21e90..e9776fa 100644
+--- a/src/pulsecore/dynarray.c
++++ b/src/pulsecore/dynarray.c
+@@ -104,6 +104,26 @@ int pa_dynarray_remove_by_index(pa_dynarray *array, unsigned i) {
+     return 0;
+ }
+ 
++int pa_dynarray_remove_by_data(pa_dynarray *array, void *p) {
++    unsigned i;
++
++    pa_assert(array);
++    pa_assert(p);
++
++    /* Iterate backwards, with the assumption that recently appended entries
++     * are likely to be removed first. */
++    i = array->n_entries;
++    while (i > 0) {
++        i--;
++        if (array->data[i] == p) {
++            pa_dynarray_remove_by_index(array, i);
++            return 0;
++        }
++    }
++
++    return -PA_ERR_NOENTITY;
++}
++
+ void *pa_dynarray_steal_last(pa_dynarray *array) {
+     pa_assert(array);
+ 
+diff --git a/src/pulsecore/dynarray.h b/src/pulsecore/dynarray.h
+index 2b30c7a..1c0e79f 100644
+--- a/src/pulsecore/dynarray.h
++++ b/src/pulsecore/dynarray.h
+@@ -51,6 +51,11 @@ void *pa_dynarray_last(pa_dynarray *array);
+ /* Returns -PA_ERR_NOENTITY if i is out of bounds, and zero otherwise. */
+ int pa_dynarray_remove_by_index(pa_dynarray *array, unsigned i);
+ 
++/* Returns -PA_ERR_NOENTITY if p is not found in the array, and zero
++ * otherwise. If the array contains multiple occurrencies of p, only one of
++ * them is removed (and it's unspecified which one). */
++int pa_dynarray_remove_by_data(pa_dynarray *array, void *p);
++
+ /* Returns the removed item, or NULL if the array is empty. */
+ void *pa_dynarray_steal_last(pa_dynarray *array);
+ 
+-- 
+2.1.4
+

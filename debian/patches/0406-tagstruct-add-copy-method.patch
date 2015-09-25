@@ -1,0 +1,52 @@
+From 21dee4b1b96e100d77ab9412c721e3b410e570b2 Mon Sep 17 00:00:00 2001
+From: Wim Taymans <wim.taymans@gmail.com>
+Date: Tue, 7 Apr 2015 17:13:13 +0200
+Subject: [PATCH 1/5] tagstruct: add copy method
+
+Add a method to copy a tagstruct. This will also reset the read pointer
+back to the beginning.
+---
+ src/pulsecore/tagstruct.c | 13 +++++++++++++
+ src/pulsecore/tagstruct.h |  2 ++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/src/pulsecore/tagstruct.c b/src/pulsecore/tagstruct.c
+index 8a29957..c29e49b 100644
+--- a/src/pulsecore/tagstruct.c
++++ b/src/pulsecore/tagstruct.c
+@@ -97,6 +97,19 @@ void pa_tagstruct_free(pa_tagstruct*t) {
+         pa_xfree(t);
+ }
+ 
++pa_tagstruct *pa_tagstruct_copy(pa_tagstruct*t) {
++    pa_tagstruct*tc;
++
++    if (!(tc = pa_flist_pop(PA_STATIC_FLIST_GET(tagstructs))))
++        tc = pa_xnew(pa_tagstruct, 1);
++    tc->data = pa_xmemdup(t->data, t->length);
++    tc->allocated = t->length;
++    tc->rindex = 0;
++    tc->type = PA_TAGSTRUCT_DYNAMIC;
++
++    return tc;
++}
++
+ static inline void extend(pa_tagstruct*t, size_t l) {
+     pa_assert(t);
+     pa_assert(t->type != PA_TAGSTRUCT_FIXED);
+diff --git a/src/pulsecore/tagstruct.h b/src/pulsecore/tagstruct.h
+index 348c65d..e648d75 100644
+--- a/src/pulsecore/tagstruct.h
++++ b/src/pulsecore/tagstruct.h
+@@ -64,6 +64,8 @@ pa_tagstruct *pa_tagstruct_new(void);
+ pa_tagstruct *pa_tagstruct_new_fixed(const uint8_t* data, size_t length);
+ void pa_tagstruct_free(pa_tagstruct*t);
+ 
++pa_tagstruct *pa_tagstruct_copy(pa_tagstruct*t);
++
+ int pa_tagstruct_eof(pa_tagstruct*t);
+ const uint8_t* pa_tagstruct_data(pa_tagstruct*t, size_t *l);
+ 
+-- 
+2.1.4
+

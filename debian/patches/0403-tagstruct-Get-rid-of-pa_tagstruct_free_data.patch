@@ -1,0 +1,87 @@
+From ab948629d35276ffe956dc897a0b38c391eacfea Mon Sep 17 00:00:00 2001
+From: Peter Meerwald <p.meerwald@bct-electronic.com>
+Date: Thu, 23 Oct 2014 16:42:58 +0200
+Subject: [PATCH 3/5] tagstruct: Get rid of pa_tagstruct_free_data()
+
+pa_tagstruct_free_data() is used in only one place
+to pass data from a tagstruct to a packet
+
+this patch is a temporary solution which introduces an extra
+malloc(); will be resolved shortly...
+
+Signed-off-by: Peter Meerwald <pmeerw@pmeerw.net>
+---
+ src/pulsecore/pstream-util.c |  9 ++++++---
+ src/pulsecore/tagstruct.c    | 13 -------------
+ src/pulsecore/tagstruct.h    |  1 -
+ 3 files changed, 6 insertions(+), 17 deletions(-)
+
+diff --git a/src/pulsecore/pstream-util.c b/src/pulsecore/pstream-util.c
+index 1c39f78..d8b9808 100644
+--- a/src/pulsecore/pstream-util.c
++++ b/src/pulsecore/pstream-util.c
+@@ -23,19 +23,22 @@
+ 
+ #include <pulsecore/native-common.h>
+ #include <pulsecore/macro.h>
++#include <pulse/xmalloc.h>
+ 
+ #include "pstream-util.h"
+ 
+ static void pa_pstream_send_tagstruct_with_ancil_data(pa_pstream *p, pa_tagstruct *t, const pa_cmsg_ancil_data *ancil_data) {
+     size_t length;
+-    uint8_t *data;
++    const uint8_t *data;
+     pa_packet *packet;
+ 
+     pa_assert(p);
+     pa_assert(t);
+ 
+-    pa_assert_se(data = pa_tagstruct_free_data(t, &length));
+-    pa_assert_se(packet = pa_packet_new_dynamic(data, length));
++    pa_assert_se(data = pa_tagstruct_data(t, &length));
++    pa_assert_se(packet = pa_packet_new_dynamic(pa_xmemdup(data, length), length));
++    pa_tagstruct_free(t);
++
+     pa_pstream_send_packet(p, packet, ancil_data);
+     pa_packet_unref(packet);
+ }
+diff --git a/src/pulsecore/tagstruct.c b/src/pulsecore/tagstruct.c
+index 84a2b82..e78fb4a 100644
+--- a/src/pulsecore/tagstruct.c
++++ b/src/pulsecore/tagstruct.c
+@@ -85,19 +85,6 @@ void pa_tagstruct_free(pa_tagstruct*t) {
+     pa_xfree(t);
+ }
+ 
+-uint8_t* pa_tagstruct_free_data(pa_tagstruct*t, size_t *l) {
+-    uint8_t *p;
+-
+-    pa_assert(t);
+-    pa_assert(t->type == PA_TAGSTRUCT_DYNAMIC);
+-    pa_assert(l);
+-
+-    p = t->data;
+-    *l = t->length;
+-    pa_xfree(t);
+-    return p;
+-}
+-
+ static inline void extend(pa_tagstruct*t, size_t l) {
+     pa_assert(t);
+     pa_assert(t->type != PA_TAGSTRUCT_FIXED);
+diff --git a/src/pulsecore/tagstruct.h b/src/pulsecore/tagstruct.h
+index e67adc1..348c65d 100644
+--- a/src/pulsecore/tagstruct.h
++++ b/src/pulsecore/tagstruct.h
+@@ -63,7 +63,6 @@ enum {
+ pa_tagstruct *pa_tagstruct_new(void);
+ pa_tagstruct *pa_tagstruct_new_fixed(const uint8_t* data, size_t length);
+ void pa_tagstruct_free(pa_tagstruct*t);
+-uint8_t* pa_tagstruct_free_data(pa_tagstruct*t, size_t *l);
+ 
+ int pa_tagstruct_eof(pa_tagstruct*t);
+ const uint8_t* pa_tagstruct_data(pa_tagstruct*t, size_t *l);
+-- 
+2.1.4
+

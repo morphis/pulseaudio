@@ -1,0 +1,65 @@
+From 360cb6550e6558606091ac8c64028ed9872ba6f9 Mon Sep 17 00:00:00 2001
+From: Tanu Kaskinen <tanu.kaskinen@linux.intel.com>
+Date: Wed, 7 Jan 2015 16:56:50 +0200
+Subject: [PATCH 4/4] dynarray: Add PA_DYNARRAY_FOREACH
+
+The PA_DYNARRAY_FOREACH macro requires that pa_dynarray_get() returns
+NULL if the index is out of bounds.
+---
+ src/pulsecore/dynarray.c  | 4 +++-
+ src/pulsecore/dynarray.h  | 5 +++++
+ src/pulsecore/tokenizer.c | 3 ---
+ 3 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/pulsecore/dynarray.c b/src/pulsecore/dynarray.c
+index e9776fa..6a3eb5f 100644
+--- a/src/pulsecore/dynarray.c
++++ b/src/pulsecore/dynarray.c
+@@ -72,7 +72,9 @@ void pa_dynarray_append(pa_dynarray *array, void *p) {
+ 
+ void *pa_dynarray_get(pa_dynarray *array, unsigned i) {
+     pa_assert(array);
+-    pa_assert(i < array->n_entries);
++
++    if (i >= array->n_entries)
++        return NULL;
+ 
+     return array->data[i];
+ }
+diff --git a/src/pulsecore/dynarray.h b/src/pulsecore/dynarray.h
+index 1c0e79f..0b05880 100644
+--- a/src/pulsecore/dynarray.h
++++ b/src/pulsecore/dynarray.h
+@@ -43,6 +43,8 @@ pa_dynarray* pa_dynarray_new(pa_free_cb_t free_cb);
+ void pa_dynarray_free(pa_dynarray *array);
+ 
+ void pa_dynarray_append(pa_dynarray *array, void *p);
++
++/* Returns the element at index i, or NULL if i is out of bounds. */
+ void *pa_dynarray_get(pa_dynarray *array, unsigned i);
+ 
+ /* Returns the last element, or NULL if the array is empty. */
+@@ -61,4 +63,7 @@ void *pa_dynarray_steal_last(pa_dynarray *array);
+ 
+ unsigned pa_dynarray_size(pa_dynarray *array);
+ 
++#define PA_DYNARRAY_FOREACH(elem, array, idx) \
++    for ((idx) = 0; ((elem) = pa_dynarray_get(array, idx)); (idx)++)
++
+ #endif
+diff --git a/src/pulsecore/tokenizer.c b/src/pulsecore/tokenizer.c
+index d889fe6..e81dd6b 100644
+--- a/src/pulsecore/tokenizer.c
++++ b/src/pulsecore/tokenizer.c
+@@ -78,8 +78,5 @@ const char *pa_tokenizer_get(pa_tokenizer *t, unsigned i) {
+ 
+     pa_assert(a);
+ 
+-    if (i >= pa_dynarray_size(a))
+-        return NULL;
+-
+     return pa_dynarray_get(a, i);
+ }
+-- 
+2.1.4
+

@@ -1,0 +1,33 @@
+Index: pulseaudio/po/POTFILES.in
+===================================================================
+--- pulseaudio.orig/po/POTFILES.in
++++ pulseaudio/po/POTFILES.in
+@@ -23,6 +23,7 @@ src/modules/gconf/module-gconf.c
+ src/modules/jack/module-jack-sink.c
+ src/modules/jack/module-jack-source.c
+ src/modules/macosx/module-coreaudio-device.c
++src/modules/trust-store/module-trust-store.c
+ src/modules/module-always-sink.c
+ src/modules/module-cli.c
+ src/modules/module-combine.c
+Index: pulseaudio/src/modules/trust-store/module-trust-store.c
+===================================================================
+--- pulseaudio.orig/src/modules/trust-store/module-trust-store.c
++++ pulseaudio/src/modules/trust-store/module-trust-store.c
+@@ -21,6 +21,7 @@
+ #include <config.h>
+ #endif
+ 
++#include <pulsecore/i18n.h>
+ #include <pulsecore/core.h>
+ #include <pulsecore/module.h>
+ #include <pulse/xmalloc.h>
+@@ -102,7 +103,7 @@ static void thread_func(void *data) {
+     struct per_client *pc = data;
+ 
+     bool result = pa_trust_store_check(pc->userdata->ts, pc->appname, pc->uid, pc->pid,
+-        "%1% wants to record audio.");
++        _("%1% wants to record audio."));
+ 
+     pa_atomic_store(&pc->result, result ? REQUEST_GRANTED : REQUEST_DENIED);
+     pa_fdsem_post(pc->userdata->fdsem);

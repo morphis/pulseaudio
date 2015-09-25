@@ -1,0 +1,582 @@
+From 037fdf485fd085525235ab4c9093a9a9eb73c414 Mon Sep 17 00:00:00 2001
+From: Peter Meerwald <p.meerwald@bct-electronic.com>
+Date: Thu, 23 Oct 2014 16:09:45 +0200
+Subject: [PATCH 1/5] tagstruct: Distinguish pa_tagstruct_new() use cases
+
+pa_tagstruct_new() is called either with no data, i.e. (NULL, 0)
+to create a dynamic tagstruct or with a pointer to fixed data
+
+introduce a new function pa_tagstruct_new_fixed() for the latter case
+
+Signed-off-by: Peter Meerwald <pmeerw@pmeerw.net>
+---
+ src/modules/module-card-restore.c   |  4 ++--
+ src/modules/module-device-manager.c |  8 ++++----
+ src/modules/module-device-restore.c | 12 ++++++------
+ src/modules/module-stream-restore.c |  8 ++++----
+ src/modules/module-tunnel.c         | 26 +++++++++++++-------------
+ src/pulse/context.c                 |  6 +++---
+ src/pulsecore/pdispatch.c           |  2 +-
+ src/pulsecore/protocol-native.c     | 34 +++++++++++++++++-----------------
+ src/pulsecore/pstream-util.c        |  4 ++--
+ src/pulsecore/tagstruct.c           | 20 ++++++++++++++++----
+ src/pulsecore/tagstruct.h           |  3 ++-
+ 11 files changed, 70 insertions(+), 57 deletions(-)
+
+diff --git a/src/modules/module-card-restore.c b/src/modules/module-card-restore.c
+index baa2f4f..f5577db 100644
+--- a/src/modules/module-card-restore.c
++++ b/src/modules/module-card-restore.c
+@@ -195,7 +195,7 @@ static bool entry_write(struct userdata *u, const char *name, const struct entry
+     pa_assert(name);
+     pa_assert(e);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu8(t, e->version);
+     pa_tagstruct_puts(t, e->profile);
+     pa_tagstruct_putu32(t, pa_hashmap_size(e->ports));
+@@ -273,7 +273,7 @@ static struct entry* entry_read(struct userdata *u, const char *name) {
+         return NULL;
+     }
+ 
+-    t = pa_tagstruct_new(data.data, data.size);
++    t = pa_tagstruct_new_fixed(data.data, data.size);
+     e = entry_new();
+ 
+     if (pa_tagstruct_getu8(t, &e->version) < 0 ||
+diff --git a/src/modules/module-device-manager.c b/src/modules/module-device-manager.c
+index 46a6955..f125bdd 100644
+--- a/src/modules/module-device-manager.c
++++ b/src/modules/module-device-manager.c
+@@ -207,7 +207,7 @@ static bool entry_write(struct userdata *u, const char *name, const struct entry
+     pa_assert(name);
+     pa_assert(e);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu8(t, e->version);
+     pa_tagstruct_puts(t, e->description);
+     pa_tagstruct_put_boolean(t, e->user_set_description);
+@@ -295,7 +295,7 @@ static struct entry* entry_read(struct userdata *u, const char *name) {
+     if (!pa_database_get(u->database, &key, &data))
+         goto fail;
+ 
+-    t = pa_tagstruct_new(data.data, data.size);
++    t = pa_tagstruct_new_fixed(data.data, data.size);
+     e = entry_new();
+ 
+     if (pa_tagstruct_getu8(t, &e->version) < 0 ||
+@@ -449,7 +449,7 @@ static void notify_subscribers(struct userdata *u) {
+     PA_IDXSET_FOREACH(c, u->subscribed, idx) {
+         pa_tagstruct *t;
+ 
+-        t = pa_tagstruct_new(NULL, 0);
++        t = pa_tagstruct_new();
+         pa_tagstruct_putu32(t, PA_COMMAND_EXTENSION);
+         pa_tagstruct_putu32(t, 0);
+         pa_tagstruct_putu32(t, u->module->index);
+@@ -1130,7 +1130,7 @@ static int extension_cb(pa_native_protocol *p, pa_module *m, pa_native_connectio
+   if (pa_tagstruct_getu32(t, &command) < 0)
+     goto fail;
+ 
+-  reply = pa_tagstruct_new(NULL, 0);
++  reply = pa_tagstruct_new();
+   pa_tagstruct_putu32(reply, PA_COMMAND_REPLY);
+   pa_tagstruct_putu32(reply, tag);
+ 
+diff --git a/src/modules/module-device-restore.c b/src/modules/module-device-restore.c
+index 70a6517..f515de7 100644
+--- a/src/modules/module-device-restore.c
++++ b/src/modules/module-device-restore.c
+@@ -151,7 +151,7 @@ static void trigger_save(struct userdata *u, pa_device_type_t type, uint32_t sin
+         PA_IDXSET_FOREACH(c, u->subscribed, idx) {
+             pa_tagstruct *t;
+ 
+-            t = pa_tagstruct_new(NULL, 0);
++            t = pa_tagstruct_new();
+             pa_tagstruct_putu32(t, PA_COMMAND_EXTENSION);
+             pa_tagstruct_putu32(t, 0);
+             pa_tagstruct_putu32(t, u->module->index);
+@@ -200,7 +200,7 @@ static bool entry_write(struct userdata *u, const char *name, const struct entry
+     pa_assert(name);
+     pa_assert(e);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu8(t, e->version);
+     pa_tagstruct_put_boolean(t, e->port_valid);
+     pa_tagstruct_puts(t, e->port);
+@@ -236,7 +236,7 @@ static struct entry* entry_read(struct userdata *u, const char *name) {
+         return NULL;
+     }
+ 
+-    t = pa_tagstruct_new(data.data, data.size);
++    t = pa_tagstruct_new_fixed(data.data, data.size);
+     e = entry_new();
+ 
+     if (pa_tagstruct_getu8(t, &e->version) < 0 ||
+@@ -371,7 +371,7 @@ static bool perportentry_write(struct userdata *u, const char *basekeyname, cons
+     n_formats = pa_idxset_size(e->formats);
+     pa_assert(n_formats > 0);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu8(t, e->version);
+     pa_tagstruct_put_boolean(t, e->volume_valid);
+     pa_tagstruct_put_channel_map(t, &e->channel_map);
+@@ -417,7 +417,7 @@ static struct perportentry* perportentry_read(struct userdata *u, const char *ba
+     if (!pa_database_get(u->database, &key, &data))
+         goto fail;
+ 
+-    t = pa_tagstruct_new(data.data, data.size);
++    t = pa_tagstruct_new_fixed(data.data, data.size);
+     e = perportentry_new(false);
+ 
+     if (pa_tagstruct_getu8(t, &e->version) < 0 ||
+@@ -1041,7 +1041,7 @@ static int extension_cb(pa_native_protocol *p, pa_module *m, pa_native_connectio
+     if (pa_tagstruct_getu32(t, &command) < 0)
+         goto fail;
+ 
+-    reply = pa_tagstruct_new(NULL, 0);
++    reply = pa_tagstruct_new();
+     pa_tagstruct_putu32(reply, PA_COMMAND_REPLY);
+     pa_tagstruct_putu32(reply, tag);
+ 
+diff --git a/src/modules/module-stream-restore.c b/src/modules/module-stream-restore.c
+index 30c9717..397b58f 100644
+--- a/src/modules/module-stream-restore.c
++++ b/src/modules/module-stream-restore.c
+@@ -992,7 +992,7 @@ static bool entry_write(struct userdata *u, const char *name, const struct entry
+     pa_assert(name);
+     pa_assert(e);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu8(t, e->version);
+     pa_tagstruct_put_boolean(t, e->volume_valid);
+     pa_tagstruct_put_channel_map(t, &e->channel_map);
+@@ -1124,7 +1124,7 @@ static struct entry *entry_read(struct userdata *u, const char *name) {
+     if (!pa_database_get(u->database, &key, &data))
+         goto fail;
+ 
+-    t = pa_tagstruct_new(data.data, data.size);
++    t = pa_tagstruct_new_fixed(data.data, data.size);
+     e = entry_new();
+ 
+     if (pa_tagstruct_getu8(t, &e->version) < 0 ||
+@@ -1201,7 +1201,7 @@ static void trigger_save(struct userdata *u) {
+     PA_IDXSET_FOREACH(c, u->subscribed, idx) {
+         pa_tagstruct *t;
+ 
+-        t = pa_tagstruct_new(NULL, 0);
++        t = pa_tagstruct_new();
+         pa_tagstruct_putu32(t, PA_COMMAND_EXTENSION);
+         pa_tagstruct_putu32(t, 0);
+         pa_tagstruct_putu32(t, u->module->index);
+@@ -2016,7 +2016,7 @@ static int extension_cb(pa_native_protocol *p, pa_module *m, pa_native_connectio
+     if (pa_tagstruct_getu32(t, &command) < 0)
+         goto fail;
+ 
+-    reply = pa_tagstruct_new(NULL, 0);
++    reply = pa_tagstruct_new();
+     pa_tagstruct_putu32(reply, PA_COMMAND_REPLY);
+     pa_tagstruct_putu32(reply, tag);
+ 
+diff --git a/src/modules/module-tunnel.c b/src/modules/module-tunnel.c
+index 7c233c9..833423a 100644
+--- a/src/modules/module-tunnel.c
++++ b/src/modules/module-tunnel.c
+@@ -447,7 +447,7 @@ static void stream_cork(struct userdata *u, bool cork) {
+     if (!u->pstream)
+         return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+ #ifdef TUNNEL_SINK
+     pa_tagstruct_putu32(t, PA_COMMAND_CORK_PLAYBACK_STREAM);
+ #else
+@@ -880,7 +880,7 @@ static void request_latency(struct userdata *u) {
+     uint32_t tag;
+     pa_assert(u);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+ #ifdef TUNNEL_SINK
+     pa_tagstruct_putu32(t, PA_COMMAND_GET_PLAYBACK_LATENCY);
+ #else
+@@ -942,7 +942,7 @@ static void update_description(struct userdata *u) {
+                           pa_get_user_name(un, sizeof(un)),
+                           pa_get_host_name(hn, sizeof(hn)));
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+ #ifdef TUNNEL_SINK
+     pa_tagstruct_putu32(t, PA_COMMAND_SET_PLAYBACK_STREAM_NAME);
+ #else
+@@ -1362,14 +1362,14 @@ static void request_info(struct userdata *u) {
+     uint32_t tag;
+     pa_assert(u);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_GET_SERVER_INFO);
+     pa_tagstruct_putu32(t, tag = u->ctag++);
+     pa_pstream_send_tagstruct(u->pstream, t);
+     pa_pdispatch_register_reply(u->pdispatch, tag, DEFAULT_TIMEOUT, server_info_cb, u, NULL);
+ 
+ #ifdef TUNNEL_SINK
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_GET_SINK_INPUT_INFO);
+     pa_tagstruct_putu32(t, tag = u->ctag++);
+     pa_tagstruct_putu32(t, u->device_index);
+@@ -1377,7 +1377,7 @@ static void request_info(struct userdata *u) {
+     pa_pdispatch_register_reply(u->pdispatch, tag, DEFAULT_TIMEOUT, sink_input_info_cb, u, NULL);
+ 
+     if (u->sink_name) {
+-        t = pa_tagstruct_new(NULL, 0);
++        t = pa_tagstruct_new();
+         pa_tagstruct_putu32(t, PA_COMMAND_GET_SINK_INFO);
+         pa_tagstruct_putu32(t, tag = u->ctag++);
+         pa_tagstruct_putu32(t, PA_INVALID_INDEX);
+@@ -1387,7 +1387,7 @@ static void request_info(struct userdata *u) {
+     }
+ #else
+     if (u->source_name) {
+-        t = pa_tagstruct_new(NULL, 0);
++        t = pa_tagstruct_new();
+         pa_tagstruct_putu32(t, PA_COMMAND_GET_SOURCE_INFO);
+         pa_tagstruct_putu32(t, tag = u->ctag++);
+         pa_tagstruct_putu32(t, PA_INVALID_INDEX);
+@@ -1434,7 +1434,7 @@ static void start_subscribe(struct userdata *u) {
+     pa_tagstruct *t;
+     pa_assert(u);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_SUBSCRIBE);
+     pa_tagstruct_putu32(t, u->ctag++);
+     pa_tagstruct_putu32(t, PA_SUBSCRIPTION_MASK_SERVER|
+@@ -1619,7 +1619,7 @@ static void setup_complete_callback(pa_pdispatch *pd, uint32_t command, uint32_t
+                 pa_get_host_name(hn, sizeof(hn)));
+ #endif
+ 
+-    reply = pa_tagstruct_new(NULL, 0);
++    reply = pa_tagstruct_new();
+     pa_tagstruct_putu32(reply, PA_COMMAND_SET_CLIENT_NAME);
+     pa_tagstruct_putu32(reply, u->ctag++);
+ 
+@@ -1637,7 +1637,7 @@ static void setup_complete_callback(pa_pdispatch *pd, uint32_t command, uint32_t
+     pa_pstream_send_tagstruct(u->pstream, reply);
+     /* We ignore the server's reply here */
+ 
+-    reply = pa_tagstruct_new(NULL, 0);
++    reply = pa_tagstruct_new();
+ 
+     if (u->version < 13)
+         /* Only for older PA versions we need to fill in the maxlength */
+@@ -1841,7 +1841,7 @@ static void on_connection(pa_socket_client *sc, pa_iochannel *io, void *userdata
+     pa_pstream_set_receive_memblock_callback(u->pstream, pstream_memblock_callback, u);
+ #endif
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_AUTH);
+     pa_tagstruct_putu32(t, tag = u->ctag++);
+     pa_tagstruct_putu32(t, PA_PROTOCOL_VERSION);
+@@ -1880,7 +1880,7 @@ static void sink_set_volume(pa_sink *sink) {
+     u = sink->userdata;
+     pa_assert(u);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_SET_SINK_INPUT_VOLUME);
+     pa_tagstruct_putu32(t, u->ctag++);
+     pa_tagstruct_putu32(t, u->device_index);
+@@ -1900,7 +1900,7 @@ static void sink_set_mute(pa_sink *sink) {
+     if (u->version < 11)
+         return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_SET_SINK_INPUT_MUTE);
+     pa_tagstruct_putu32(t, u->ctag++);
+     pa_tagstruct_putu32(t, u->device_index);
+diff --git a/src/pulse/context.c b/src/pulse/context.c
+index 30d3eab..738ea84 100644
+--- a/src/pulse/context.c
++++ b/src/pulse/context.c
+@@ -369,7 +369,7 @@ static void handle_srbchannel_memblock(pa_context *c, pa_memblock *memblock) {
+     }
+ 
+     /* Ack the enable command */
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_ENABLE_SRBCHANNEL);
+     pa_tagstruct_putu32(t, c->srb_setup_tag);
+     pa_pstream_send_tagstruct(c->pstream, t);
+@@ -1305,7 +1305,7 @@ pa_tagstruct *pa_tagstruct_command(pa_context *c, uint32_t command, uint32_t *ta
+     pa_assert(c);
+     pa_assert(tag);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, command);
+     pa_tagstruct_putu32(t, *tag = c->ctag++);
+ 
+@@ -1479,7 +1479,7 @@ static void pa_command_disable_srbchannel(pa_pdispatch *pd, uint32_t command, ui
+     }
+ 
+     /* Send disable command back again */
+-    t2 = pa_tagstruct_new(NULL, 0);
++    t2 = pa_tagstruct_new();
+     pa_tagstruct_putu32(t2, PA_COMMAND_DISABLE_SRBCHANNEL);
+     pa_tagstruct_putu32(t2, tag);
+     pa_pstream_send_tagstruct(c->pstream, t2);
+diff --git a/src/pulsecore/pdispatch.c b/src/pulsecore/pdispatch.c
+index c258c0b..7837ee3 100644
+--- a/src/pulsecore/pdispatch.c
++++ b/src/pulsecore/pdispatch.c
+@@ -305,7 +305,7 @@ int pa_pdispatch_run(pa_pdispatch *pd, pa_packet *packet, const pa_cmsg_ancil_da
+     if (packet->length <= 8)
+         goto finish;
+ 
+-    ts = pa_tagstruct_new(packet->data, packet->length);
++    ts = pa_tagstruct_new_fixed(packet->data, packet->length);
+ 
+     if (pa_tagstruct_getu32(ts, &command) < 0 ||
+         pa_tagstruct_getu32(ts, &tag) < 0)
+diff --git a/src/pulsecore/protocol-native.c b/src/pulsecore/protocol-native.c
+index f54f2a4..ba9b406 100644
+--- a/src/pulsecore/protocol-native.c
++++ b/src/pulsecore/protocol-native.c
+@@ -757,7 +757,7 @@ static void record_stream_send_killed(record_stream *r) {
+     pa_tagstruct *t;
+     record_stream_assert_ref(r);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_RECORD_STREAM_KILLED);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, r->index);
+@@ -818,7 +818,7 @@ static int playback_stream_process_msg(pa_msgobject *o, int code, void*userdata,
+                     break;
+             }
+ 
+-            t = pa_tagstruct_new(NULL, 0);
++            t = pa_tagstruct_new();
+             pa_tagstruct_putu32(t, PA_COMMAND_REQUEST);
+             pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+             pa_tagstruct_putu32(t, s->index);
+@@ -839,7 +839,7 @@ static int playback_stream_process_msg(pa_msgobject *o, int code, void*userdata,
+ #endif
+ 
+             /* Report that we're empty */
+-            t = pa_tagstruct_new(NULL, 0);
++            t = pa_tagstruct_new();
+             pa_tagstruct_putu32(t, PA_COMMAND_UNDERFLOW);
+             pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+             pa_tagstruct_putu32(t, s->index);
+@@ -853,7 +853,7 @@ static int playback_stream_process_msg(pa_msgobject *o, int code, void*userdata,
+             pa_tagstruct *t;
+ 
+             /* Notify the user we're overflowed*/
+-            t = pa_tagstruct_new(NULL, 0);
++            t = pa_tagstruct_new();
+             pa_tagstruct_putu32(t, PA_COMMAND_OVERFLOW);
+             pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+             pa_tagstruct_putu32(t, s->index);
+@@ -867,7 +867,7 @@ static int playback_stream_process_msg(pa_msgobject *o, int code, void*userdata,
+                 pa_tagstruct *t;
+ 
+                 /* Notify the user we started playback */
+-                t = pa_tagstruct_new(NULL, 0);
++                t = pa_tagstruct_new();
+                 pa_tagstruct_putu32(t, PA_COMMAND_STARTED);
+                 pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+                 pa_tagstruct_putu32(t, s->index);
+@@ -887,7 +887,7 @@ static int playback_stream_process_msg(pa_msgobject *o, int code, void*userdata,
+             if (s->connection->version >= 15) {
+                 pa_tagstruct *t;
+ 
+-                t = pa_tagstruct_new(NULL, 0);
++                t = pa_tagstruct_new();
+                 pa_tagstruct_putu32(t, PA_COMMAND_PLAYBACK_BUFFER_ATTR_CHANGED);
+                 pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+                 pa_tagstruct_putu32(t, s->index);
+@@ -1285,7 +1285,7 @@ static void playback_stream_send_killed(playback_stream *p) {
+     pa_tagstruct *t;
+     playback_stream_assert_ref(p);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_PLAYBACK_STREAM_KILLED);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, p->index);
+@@ -1747,7 +1747,7 @@ static void sink_input_send_event_cb(pa_sink_input *i, const char *event, pa_pro
+     if (s->connection->version < 15)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_PLAYBACK_STREAM_EVENT);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, s->index);
+@@ -1768,7 +1768,7 @@ static void sink_input_suspend_cb(pa_sink_input *i, bool suspend) {
+     if (s->connection->version < 12)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_PLAYBACK_STREAM_SUSPENDED);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, s->index);
+@@ -1795,7 +1795,7 @@ static void sink_input_moving_cb(pa_sink_input *i, pa_sink *dest) {
+     if (s->connection->version < 12)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_PLAYBACK_STREAM_MOVED);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, s->index);
+@@ -1885,7 +1885,7 @@ static void source_output_send_event_cb(pa_source_output *o, const char *event,
+     if (s->connection->version < 15)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_RECORD_STREAM_EVENT);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, s->index);
+@@ -1906,7 +1906,7 @@ static void source_output_suspend_cb(pa_source_output *o, bool suspend) {
+     if (s->connection->version < 12)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_RECORD_STREAM_SUSPENDED);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, s->index);
+@@ -1934,7 +1934,7 @@ static void source_output_moving_cb(pa_source_output *o, pa_source *dest) {
+     if (s->connection->version < 12)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_RECORD_STREAM_MOVED);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_putu32(t, s->index);
+@@ -1975,7 +1975,7 @@ if (!(expression)) { \
+ static pa_tagstruct *reply_new(uint32_t tag) {
+     pa_tagstruct *reply;
+ 
+-    reply = pa_tagstruct_new(NULL, 0);
++    reply = pa_tagstruct_new();
+     pa_tagstruct_putu32(reply, PA_COMMAND_REPLY);
+     pa_tagstruct_putu32(reply, tag);
+     return reply;
+@@ -2619,7 +2619,7 @@ static void setup_srbchannel(pa_native_connection *c) {
+     pa_srbchannel_export(srb, &srbt);
+ 
+     /* Send enable command to client */
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_ENABLE_SRBCHANNEL);
+     pa_tagstruct_putu32(t, (size_t) srb); /* tag */
+     fdlist[0] = srbt.readfd;
+@@ -3744,7 +3744,7 @@ static void subscription_cb(pa_core *core, pa_subscription_event_type_t e, uint3
+ 
+     pa_native_connection_assert_ref(c);
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_SUBSCRIBE_EVENT);
+     pa_tagstruct_putu32(t, (uint32_t) -1);
+     pa_tagstruct_putu32(t, e);
+@@ -5037,7 +5037,7 @@ static void client_send_event_cb(pa_client *client, const char*event, pa_proplis
+     if (c->version < 15)
+       return;
+ 
+-    t = pa_tagstruct_new(NULL, 0);
++    t = pa_tagstruct_new();
+     pa_tagstruct_putu32(t, PA_COMMAND_CLIENT_EVENT);
+     pa_tagstruct_putu32(t, (uint32_t) -1); /* tag */
+     pa_tagstruct_puts(t, event);
+diff --git a/src/pulsecore/pstream-util.c b/src/pulsecore/pstream-util.c
+index 356d28c..1c39f78 100644
+--- a/src/pulsecore/pstream-util.c
++++ b/src/pulsecore/pstream-util.c
+@@ -84,7 +84,7 @@ void pa_pstream_send_tagstruct_with_fds(pa_pstream *p, pa_tagstruct *t, int nfd,
+ void pa_pstream_send_error(pa_pstream *p, uint32_t tag, uint32_t error) {
+     pa_tagstruct *t;
+ 
+-    pa_assert_se(t = pa_tagstruct_new(NULL, 0));
++    pa_assert_se(t = pa_tagstruct_new());
+     pa_tagstruct_putu32(t, PA_COMMAND_ERROR);
+     pa_tagstruct_putu32(t, tag);
+     pa_tagstruct_putu32(t, error);
+@@ -94,7 +94,7 @@ void pa_pstream_send_error(pa_pstream *p, uint32_t tag, uint32_t error) {
+ void pa_pstream_send_simple_ack(pa_pstream *p, uint32_t tag) {
+     pa_tagstruct *t;
+ 
+-    pa_assert_se(t = pa_tagstruct_new(NULL, 0));
++    pa_assert_se(t = pa_tagstruct_new());
+     pa_tagstruct_putu32(t, PA_COMMAND_REPLY);
+     pa_tagstruct_putu32(t, tag);
+     pa_pstream_send_tagstruct(p, t);
+diff --git a/src/pulsecore/tagstruct.c b/src/pulsecore/tagstruct.c
+index bf123d5..251618a 100644
+--- a/src/pulsecore/tagstruct.c
++++ b/src/pulsecore/tagstruct.c
+@@ -48,16 +48,28 @@ struct pa_tagstruct {
+     bool dynamic;
+ };
+ 
+-pa_tagstruct *pa_tagstruct_new(const uint8_t* data, size_t length) {
++pa_tagstruct *pa_tagstruct_new(void) {
+     pa_tagstruct*t;
+ 
+-    pa_assert(!data || (data && length));
++    t = pa_xnew(pa_tagstruct, 1);
++    t->data = NULL;
++    t->allocated = t->length = 0;
++    t->rindex = 0;
++    t->dynamic = true;
++
++    return t;
++}
++
++pa_tagstruct *pa_tagstruct_new_fixed(const uint8_t* data, size_t length) {
++    pa_tagstruct*t;
++
++    pa_assert(data && length);
+ 
+     t = pa_xnew(pa_tagstruct, 1);
+     t->data = (uint8_t*) data;
+-    t->allocated = t->length = data ? length : 0;
++    t->allocated = t->length = length;
+     t->rindex = 0;
+-    t->dynamic = !data;
++    t->dynamic = false;
+ 
+     return t;
+ }
+diff --git a/src/pulsecore/tagstruct.h b/src/pulsecore/tagstruct.h
+index 6319ee9..e67adc1 100644
+--- a/src/pulsecore/tagstruct.h
++++ b/src/pulsecore/tagstruct.h
+@@ -60,7 +60,8 @@ enum {
+     PA_TAG_FORMAT_INFO = 'f',
+ };
+ 
+-pa_tagstruct *pa_tagstruct_new(const uint8_t* data, size_t length);
++pa_tagstruct *pa_tagstruct_new(void);
++pa_tagstruct *pa_tagstruct_new_fixed(const uint8_t* data, size_t length);
+ void pa_tagstruct_free(pa_tagstruct*t);
+ uint8_t* pa_tagstruct_free_data(pa_tagstruct*t, size_t *l);
+ 
+-- 
+2.1.4
+

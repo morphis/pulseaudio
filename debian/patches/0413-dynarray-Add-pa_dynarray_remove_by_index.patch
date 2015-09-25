@@ -1,0 +1,75 @@
+From 9efe77c8e51181757036aa35ab5c653d42091fa8 Mon Sep 17 00:00:00 2001
+From: Tanu Kaskinen <tanu.kaskinen@linux.intel.com>
+Date: Wed, 7 Jan 2015 16:56:48 +0200
+Subject: [PATCH 2/4] dynarray: Add pa_dynarray_remove_by_index()
+
+Also, remove the talk about "fast" variants of functions that remove
+entries from an array. Currently there's no need for order-preserving
+functions, so all functions are "fast".
+---
+ src/pulsecore/dynarray.c | 18 ++++++++++++++++++
+ src/pulsecore/dynarray.h | 12 ++++++------
+ 2 files changed, 24 insertions(+), 6 deletions(-)
+
+diff --git a/src/pulsecore/dynarray.c b/src/pulsecore/dynarray.c
+index 944f68d..3f21e90 100644
+--- a/src/pulsecore/dynarray.c
++++ b/src/pulsecore/dynarray.c
+@@ -86,6 +86,24 @@ void *pa_dynarray_last(pa_dynarray *array) {
+     return array->data[array->n_entries - 1];
+ }
+ 
++int pa_dynarray_remove_by_index(pa_dynarray *array, unsigned i) {
++    void *entry;
++
++    pa_assert(array);
++
++    if (i >= array->n_entries)
++        return -PA_ERR_NOENTITY;
++
++    entry = array->data[i];
++    array->data[i] = array->data[array->n_entries - 1];
++    array->n_entries--;
++
++    if (array->free_cb)
++        array->free_cb(entry);
++
++    return 0;
++}
++
+ void *pa_dynarray_steal_last(pa_dynarray *array) {
+     pa_assert(array);
+ 
+diff --git a/src/pulsecore/dynarray.h b/src/pulsecore/dynarray.h
+index 082ab1d..2b30c7a 100644
+--- a/src/pulsecore/dynarray.h
++++ b/src/pulsecore/dynarray.h
+@@ -33,12 +33,9 @@ typedef struct pa_dynarray pa_dynarray;
+  * from the array without freeing them, while also having the free callback
+  * set, the functions with "steal" in their name can be used.
+  *
+- * Removing items from the middle of the array causes the subsequent items to
+- * be moved to fill the gap, so it's not efficient with large arrays. If the
+- * order of the array is not important, however, functions with "fast" in their
+- * name can be used, in which case the gap is filled by moving only the last
+- * item(s). XXX: Currently there are no functions with "fast" in their name,
+- * but such functions will be added if they are ever needed.
++ * Removing items from the middle of the array causes the last item to be
++ * moved to the place of the removed item. That is, array ordering is not
++ * preserved.
+  *
+  * The array doesn't support storing NULL pointers. */
+ 
+@@ -51,6 +48,9 @@ void *pa_dynarray_get(pa_dynarray *array, unsigned i);
+ /* Returns the last element, or NULL if the array is empty. */
+ void *pa_dynarray_last(pa_dynarray *array);
+ 
++/* Returns -PA_ERR_NOENTITY if i is out of bounds, and zero otherwise. */
++int pa_dynarray_remove_by_index(pa_dynarray *array, unsigned i);
++
+ /* Returns the removed item, or NULL if the array is empty. */
+ void *pa_dynarray_steal_last(pa_dynarray *array);
+ 
+-- 
+2.1.4
+

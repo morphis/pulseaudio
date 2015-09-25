@@ -1,0 +1,47 @@
+From e5cf7e4a07368c3b2554d8200949ee6bd15db4b9 Mon Sep 17 00:00:00 2001
+From: Tanu Kaskinen <tanu.kaskinen@linux.intel.com>
+Date: Wed, 7 Jan 2015 16:56:47 +0200
+Subject: [PATCH 1/4] dynarray: Add pa_dynarray_last()
+
+---
+ src/pulsecore/dynarray.c | 9 +++++++++
+ src/pulsecore/dynarray.h | 3 +++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/src/pulsecore/dynarray.c b/src/pulsecore/dynarray.c
+index 7d7c09c..944f68d 100644
+--- a/src/pulsecore/dynarray.c
++++ b/src/pulsecore/dynarray.c
+@@ -77,6 +77,15 @@ void *pa_dynarray_get(pa_dynarray *array, unsigned i) {
+     return array->data[i];
+ }
+ 
++void *pa_dynarray_last(pa_dynarray *array) {
++    pa_assert(array);
++
++    if (array->n_entries == 0)
++        return NULL;
++
++    return array->data[array->n_entries - 1];
++}
++
+ void *pa_dynarray_steal_last(pa_dynarray *array) {
+     pa_assert(array);
+ 
+diff --git a/src/pulsecore/dynarray.h b/src/pulsecore/dynarray.h
+index 0ca6ed3..082ab1d 100644
+--- a/src/pulsecore/dynarray.h
++++ b/src/pulsecore/dynarray.h
+@@ -48,6 +48,9 @@ void pa_dynarray_free(pa_dynarray *array);
+ void pa_dynarray_append(pa_dynarray *array, void *p);
+ void *pa_dynarray_get(pa_dynarray *array, unsigned i);
+ 
++/* Returns the last element, or NULL if the array is empty. */
++void *pa_dynarray_last(pa_dynarray *array);
++
+ /* Returns the removed item, or NULL if the array is empty. */
+ void *pa_dynarray_steal_last(pa_dynarray *array);
+ 
+-- 
+2.1.4
+
