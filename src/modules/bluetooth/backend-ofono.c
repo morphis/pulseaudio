@@ -209,6 +209,7 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char 
     const char *key, *value;
     struct hf_audio_card *card;
     pa_bluetooth_device *d;
+    pa_bluetooth_profile_t profile = PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY;
 
     pa_assert(backend);
     pa_assert(path);
@@ -234,7 +235,12 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char 
 
         dbus_message_iter_get_basic(&value_i, &value);
 
-        if (pa_streq(key, "RemoteAddress")) {
+        if (pa_streq(key, "Type")) {
+            if (pa_streq(value, "gateway"))
+                profile = PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT;
+            else if (pa_streq(value, "handsfree"))
+                profile = PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY;
+        } else if (pa_streq(key, "RemoteAddress")) {
             pa_xfree(card->remote_address);
             card->remote_address = pa_xstrdup(value);
         } else if (pa_streq(key, "LocalAddress")) {
@@ -253,7 +259,7 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char 
         goto fail;
     }
 
-    card->transport = pa_bluetooth_transport_new(d, backend->ofono_bus_id, path, PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY, NULL, 0);
+    card->transport = pa_bluetooth_transport_new(d, backend->ofono_bus_id, path, profile, NULL, 0);
     card->transport->acquire = hf_audio_agent_transport_acquire;
     card->transport->release = hf_audio_agent_transport_release;
     card->transport->userdata = card;
