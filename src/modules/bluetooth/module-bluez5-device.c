@@ -163,6 +163,7 @@ struct userdata {
     struct hsp_info hsp;
 
     char *default_profile;
+    bool transport_acquire_pending;
 };
 
 typedef enum pa_bluetooth_form_factor {
@@ -760,19 +761,28 @@ static void teardown_stream(struct userdata *u) {
 static int transport_acquire(struct userdata *u, bool optional) {
     pa_assert(u->transport);
 
+    if (u->transport_acquire_pending)
+        return 0;
+
     if (u->transport_acquired) {
         pa_log_debug("Transport already acquired");
         return 0;
     }
 
+    u->transport_acquire_pending = true;
+
     pa_log_debug("Acquiring transport %s", u->transport->path);
 
     u->stream_fd = u->transport->acquire(u->transport, optional, &u->read_link_mtu, &u->write_link_mtu);
-    if (u->stream_fd < 0)
+    if (u->stream_fd < 0) {
+        u->transport_acquire_pending = false;
         return -1;
+    }
 
     u->transport_acquired = true;
     pa_log_info("Transport %s acquired: fd %d", u->transport->path, u->stream_fd);
+
+    u->transport_acquire_pending = false;
 
     return 0;
 }
@@ -795,6 +805,10 @@ static void transport_release(struct userdata *u) {
 
 /* Run from I/O thread */
 static void transport_config_mtu(struct userdata *u) {
+
+    pa_log_debug("Configuring MTU for transport of profile %s",
+                 pa_bluetooth_profile_to_string(u->profile));
+
     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
         u->read_block_size = u->read_link_mtu;
         u->write_block_size = u->write_link_mtu;
@@ -1254,6 +1268,10 @@ static int add_sink(struct userdata *u) {
 
 /* Run from main thread */
 static void transport_config(struct userdata *u) {
+
+    pa_log_debug("Configuring transport for profile %s",
+                 pa_bluetooth_profile_to_string(u->profile));
+
     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
         u->sample_spec.format = PA_SAMPLE_S16LE;
         u->sample_spec.channels = 1;
@@ -1426,6 +1444,9 @@ static int init_profile(struct userdata *u) {
         return -1;
 
     pa_assert(u->transport);
+
+    pa_log_debug("Transport for profile %s successfully setup",
+                 pa_bluetooth_profile_to_string(u->profile));
 
     if (get_profile_direction (u->profile) & PA_DIRECTION_OUTPUT)
         if (add_sink(u) < 0)

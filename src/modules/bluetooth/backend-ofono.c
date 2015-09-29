@@ -156,12 +156,32 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
     pa_assert(card);
 
     if (!optional) {
-        DBusMessage *m;
+        DBusMessage *m, *r;
 
         pa_assert_se(m = dbus_message_new_method_call(t->owner, t->path, "org.ofono.HandsfreeAudioCard", "Connect"));
-        pa_assert_se(dbus_connection_send(pa_dbus_connection_get(card->backend->connection), m, NULL));
+        // pa_assert_se(dbus_connection_send(pa_dbus_connection_get(card->backend->connection), m, NULL));
 
-        return -1;
+        r = dbus_connection_send_with_reply_and_block(pa_dbus_connection_get(card->backend->connection), m, -1, NULL);
+        if (!r) {
+            pa_log_error("Failed to connect remote handsfree audio card for transport at %s", t->path);
+            return -1;
+        }
+
+        /* Dispatch all incoming messages as we should have received the
+         * NewConnection one on our HandsfreeAgent interface already at
+         * this point. */
+        dbus_connection_dispatch(pa_dbus_connection_get(card->backend->connection));
+
+        if (card->fd < 0)
+            return -1;
+
+        err = socket_accept(card->fd);
+        if (err < 0) {
+            pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
+            return -1;
+        }
+
+        return card->fd;
     }
 
     /* The correct block size should take into account the SCO MTU from
