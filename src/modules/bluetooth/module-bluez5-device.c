@@ -30,6 +30,7 @@
 #include <pulse/rtclock.h>
 #include <pulse/timeval.h>
 
+#include <pulsecore/core.h>
 #include <pulsecore/core-error.h>
 #include <pulsecore/core-rtclock.h>
 #include <pulsecore/core-util.h>
@@ -44,6 +45,7 @@
 #include <pulsecore/thread-mq.h>
 #include <pulsecore/time-smoother.h>
 #include <pulsecore/namereg.h>
+#include <pulse/mainloop-api.h>
 
 #include "a2dp-codecs.h"
 #include "bluez5-util.h"
@@ -164,6 +166,7 @@ struct userdata {
 
     char *default_profile;
     bool transport_acquire_pending;
+    pa_io_event *stream_event;
 };
 
 typedef enum pa_bluetooth_form_factor {
@@ -740,6 +743,11 @@ static void teardown_stream(struct userdata *u) {
         u->rtpoll_item = NULL;
     }
 
+    if (u->stream_event) {
+        u->core->mainloop->io_free(u->stream_event);
+        u->stream_event = NULL;
+    }
+
     if (u->stream_fd >= 0) {
         pa_close(u->stream_fd);
         u->stream_fd = -1;
@@ -840,7 +848,7 @@ static void transport_config_mtu(struct userdata *u) {
                                                   pa_bytes_to_usec(u->read_block_size, &u->sample_spec));
 }
 
-/* Run from I/O thread */
+/* Run from I/O thread except in SCO over PCM */
 static void setup_stream(struct userdata *u) {
     struct pollfd *pollfd;
     int one;
@@ -1701,6 +1709,19 @@ static int sco_over_pcm_state_update(struct userdata *u, bool changed)
     return 0;
 }
 
+static void stream_died_cb(pa_mainloop_api *ea, pa_io_event *e, int fd, pa_io_event_flags_t events, void *userdata)
+{
+    struct userdata *u = userdata;
+
+    pa_assert(u);
+    pa_assert(u->transport);
+
+    pa_log_warn("SCO stream went down");
+
+    pa_bluetooth_transport_set_state(u->transport, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
+
+}
+
 /* Run from main thread */
 static int start_thread(struct userdata *u) {
     pa_assert(u);
@@ -1731,10 +1752,18 @@ static int start_thread(struct userdata *u) {
             return -1;
         }
 
+        pa_log_debug("Installing monitor for SCO stream");
+
+        u->stream_event = u->core->mainloop->io_new(u->core->mainloop,
+                            u->stream_fd, PA_IO_EVENT_HANGUP | PA_IO_EVENT_ERROR, stream_died_cb, u);
+        if (!u->stream_event) {
+            pa_log_error("Failed to setup monitoring for SCO stream");
+            return -1;
+        }
+
         pa_sink_ref(u->sink);
         pa_source_ref(u->source);
 
-        /* FIXME: monitor stream_fd error */
         return 0;
     }
 
