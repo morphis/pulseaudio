@@ -159,6 +159,9 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
     if (!optional) {
         DBusMessage *m, *r;
 
+        pa_log_debug("Acquiring transport from ofono for card %s",
+                     card->path);
+
         pa_assert_se(m = dbus_message_new_method_call(t->owner, t->path, "org.ofono.HandsfreeAudioCard", "Connect"));
 
         /* We need to block here for the reply as otherwise we wouldn't fit
@@ -169,6 +172,8 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
             return -1;
         }
 
+        pa_log_debug("Handsfree audio card %s got connected", card->path);
+
         /* Dispatch all incoming messages as we should have received the
          * NewConnection one on our HandsfreeAgent interface already at
          * this point. */
@@ -176,6 +181,9 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
 
         if (card->fd < 0)
             return -1;
+
+        pa_log_debug("Setting up SCO connection (fd %u) for card %s",
+                     card->fd, card->path);
 
         err = socket_accept(card->fd);
         if (err < 0) {
@@ -211,6 +219,9 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
     struct hf_audio_card *card = t->userdata;
 
     pa_assert(card);
+
+    pa_log_debug("Release transport for card %s (fd %u)",
+                 card->path, card->fd);
 
     if (t->state <= PA_BLUETOOTH_TRANSPORT_STATE_IDLE) {
         pa_log_info("Transport %s already released", t->path);
@@ -252,6 +263,9 @@ static void hf_audio_card_set_speaker_gain(pa_bluetooth_transport *t, uint16_t g
 
     pa_assert(card);
 
+    pa_log_debug("Setting speaker gain for card %s to %u",
+                 card->path, gain);
+
     set_property(card->backend->connection, OFONO_SERVICE, card->path,
                  HF_AUDIO_CARD_INTERFACE, "SpeakerGain", DBUS_TYPE_UINT16, &gain);
 }
@@ -261,6 +275,9 @@ static void hf_audio_card_set_microphone_gain(pa_bluetooth_transport *t, uint16_
     struct hf_audio_card *card = t->userdata;
 
     pa_assert(card);
+
+    pa_log_debug("Setting microphone gain for card %s to %u",
+                 card->path, gain);
 
     set_property(card->backend->connection, OFONO_SERVICE, card->path,
                  HF_AUDIO_CARD_INTERFACE, "MicrophoneGain", DBUS_TYPE_UINT16, &gain);
