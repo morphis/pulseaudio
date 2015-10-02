@@ -308,7 +308,7 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char 
 
             pa_log_debug("%s: %s", key, value);
 
-        } else if ((c == dbus_message_iter_get_arg_type(&value_i)) == DBUS_TYPE_UINT16) {
+        } else if ((c = dbus_message_iter_get_arg_type(&value_i)) == DBUS_TYPE_UINT16) {
             /* Ignore for now */
         } else {
             pa_log_error("Invalid properties for %s: expected 's' or 'q', received '%c'", path, c);
