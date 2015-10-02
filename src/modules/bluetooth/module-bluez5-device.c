@@ -2102,6 +2102,13 @@ static int set_profile_cb(pa_card *c, pa_card_profile *new_profile) {
 
         if (!d->transports[*p] || d->transports[*p]->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED) {
             pa_log_warn("Refused to switch profile to %s: Not connected", new_profile->name);
+
+            /* For the rare case that we were requested to switch to A2DP
+             * but that failed (due the profile got disconnected) we switch
+             * to off */
+            if (*p == PA_BLUETOOTH_PROFILE_A2DP_SINK)
+                pa_assert_se(pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, "off"), false) >= 0);
+
             return -PA_ERR_IO;
         }
     }
