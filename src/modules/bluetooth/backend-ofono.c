@@ -179,8 +179,10 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
          * this point. */
         dbus_connection_dispatch(pa_dbus_connection_get(card->backend->connection));
 
-        if (card->fd < 0)
+        if (card->fd < 0) {
+            pa_log_warn("Didn't got a connection shared from ofono yet");
             return -1;
+        }
 
         pa_log_debug("Setting up SCO connection (fd %u) for card %s",
                      card->fd, card->path);
@@ -618,9 +620,22 @@ static DBusMessage *hf_audio_agent_new_connection(DBusConnection *c, DBusMessage
 
     card = pa_hashmap_get(backend->cards, path);
 
-    if (!card || codec != HFP_AUDIO_CODEC_CVSD || card->transport->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING) {
-        pa_log_warn("New audio connection invalid arguments (path=%s fd=%d, codec=%d)", path, fd, codec);
+    if (!card || codec != HFP_AUDIO_CODEC_CVSD) {
+        pa_log_warn("New audio connection invalid arguments (path=%s fd=%d, codec=%d, transport [state=%s, profile=%s])",
+                    path, fd, codec,
+                    card ? pa_bluetooth_transport_state_to_string(card->transport->state) : "unknown",
+                    card ? pa_bluetooth_profile_to_string(card->transport->profile) : "unknown");
         pa_assert_se(r = dbus_message_new_error(m, "org.ofono.Error.InvalidArguments", "Invalid arguments in method call"));
+        return r;
+    }
+
+    if (card->transport->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING) {
+        pa_log_warn("Could not activate new audio connection as it is already active!? "
+                    "(path=%s fd=%d, codec=%d, transport [state=%s, profile=%s])",
+                    path, fd, codec,
+                    pa_bluetooth_transport_state_to_string(card->transport->state),
+                    pa_bluetooth_profile_to_string(card->transport->profile));
+        pa_assert_se(r = dbus_message_new_error(m, "org.ofono.Error.InvalidArguments", "Transport is already active"));
         return r;
     }
 
