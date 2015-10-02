@@ -160,8 +160,9 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
         DBusMessage *m, *r;
 
         pa_assert_se(m = dbus_message_new_method_call(t->owner, t->path, "org.ofono.HandsfreeAudioCard", "Connect"));
-        // pa_assert_se(dbus_connection_send(pa_dbus_connection_get(card->backend->connection), m, NULL));
 
+        /* We need to block here for the reply as otherwise we wouldn't fit
+         * into the what is expected from us when we return. */
         r = dbus_connection_send_with_reply_and_block(pa_dbus_connection_get(card->backend->connection), m, -1, NULL);
         if (!r) {
             pa_log_error("Failed to connect remote handsfree audio card for transport at %s", t->path);
