@@ -1042,6 +1042,7 @@ static int add_source(struct userdata *u) {
         pa_source_set_set_volume_callback(u->source, source_set_volume_cb);
         u->source->n_volume_steps = 16;
     }
+
     return 0;
 }
 
@@ -1271,6 +1272,7 @@ static int add_sink(struct userdata *u) {
         pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
         u->sink->n_volume_steps = 16;
     }
+
     return 0;
 }
 
@@ -1733,24 +1735,8 @@ static int start_thread(struct userdata *u) {
     pa_thread_mq_init(&u->thread_mq, u->core->mainloop, u->rtpoll);
 
     if (USE_SCO_OVER_PCM(u)) {
-        if (sco_over_pcm_state_update(u, false) < 0) {
-            char *k;
-
-            if (u->sink) {
-                k = pa_sprintf_malloc("bluetooth-device@%p", (void*) u->sink);
-                pa_shared_remove(u->core, k);
-                pa_xfree(k);
-                u->sink = NULL;
-            }
-            if (u->source) {
-                k = pa_sprintf_malloc("bluetooth-device@%p", (void*) u->source);
-                pa_shared_remove(u->core, k);
-                pa_xfree(k);
-                u->source = NULL;
-            }
-
+        if (sco_over_pcm_state_update(u, false) < 0)
             return -1;
-        }
 
         pa_log_debug("Installing monitor for SCO stream");
 
