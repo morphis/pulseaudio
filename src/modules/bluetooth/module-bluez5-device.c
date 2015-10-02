@@ -2251,7 +2251,7 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
     pa_assert(t);
     pa_assert_se(cp = pa_hashmap_get(u->card->profiles, pa_bluetooth_profile_to_string(t->profile)));
 
-    pa_debug_log("State of transport for profile %s changed to %s",
+    pa_log_debug("State of transport for profile %s changed to %s",
                  pa_bluetooth_profile_to_string(t->profile),
                  pa_bluetooth_transport_state_to_string(t->state));
 
