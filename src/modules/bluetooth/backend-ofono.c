@@ -158,6 +158,7 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
 
     if (!optional) {
         DBusMessage *m, *r;
+        DBusDispatchStatus dispatch_status = DBUS_DISPATCH_DATA_REMAINS;
 
         pa_log_debug("Acquiring transport from ofono for card %s",
                      card->path);
@@ -177,7 +178,14 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
         /* Dispatch all incoming messages as we should have received the
          * NewConnection one on our HandsfreeAgent interface already at
          * this point. */
-        dbus_connection_dispatch(pa_dbus_connection_get(card->backend->connection));
+        while (dispatch_status != DBUS_DISPATCH_COMPLETE) {
+            pa_log_debug("Dispatching all outstanding dbus messages ...");
+
+            dispatch_status = dbus_connection_dispatch(pa_dbus_connection_get(card->backend->connection));
+
+            if (card->fd > 0)
+                break;
+        }
 
         if (card->fd < 0) {
             pa_log_warn("Didn't got a connection shared from ofono yet");
