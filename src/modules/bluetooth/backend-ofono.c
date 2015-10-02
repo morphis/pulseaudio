@@ -245,8 +245,8 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
         card->fd = -1;
     }
 
-    /* in any case switch the transport to disconnected */
-    pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED);
+    /* in any case switch the transport to idle */
+    pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
 }
 
 static void set_property(pa_dbus_connection *conn, const char *bus, const char *path, const char *interface,
