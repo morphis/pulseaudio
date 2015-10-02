@@ -2266,7 +2266,7 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
 
     /* Acquire or release transport as needed */
     acquire = (t->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
-    release = (oldavail != PA_AVAILABLE_NO && t->state != PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
+    release = (t->state != PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
 
     if (acquire && transport_acquire(u, true) >= 0) {
 
