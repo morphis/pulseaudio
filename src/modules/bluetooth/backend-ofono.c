@@ -245,6 +245,8 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
     shutdown(card->fd, SHUT_RDWR);
     close(card->fd);
     card->fd = -1;
+
+    pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED);
 }
 
 static void set_property(pa_dbus_connection *conn, const char *bus, const char *path, const char *interface,
