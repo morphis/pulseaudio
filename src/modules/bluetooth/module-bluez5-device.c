@@ -2251,6 +2251,10 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
     pa_assert(t);
     pa_assert_se(cp = pa_hashmap_get(u->card->profiles, pa_bluetooth_profile_to_string(t->profile)));
 
+    pa_debug_log("State of transport for profile %s changed to %s",
+                 pa_bluetooth_profile_to_string(t->profile),
+                 pa_bluetooth_transport_state_to_string(t->state));
+
     oldavail = cp->available;
     pa_card_profile_set_available(cp, transport_state_to_availability(t->state));
 
@@ -2265,6 +2269,10 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
     release = (oldavail != PA_AVAILABLE_NO && t->state != PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
 
     if (acquire && transport_acquire(u, true) >= 0) {
+
+        pa_log_debug("Acquiring transport for profile %s",
+                     pa_bluetooth_profile_to_string(t->profile));
+
         if (u->source) {
             pa_log_debug("Resuming source %s because its transport state changed to playing", u->source->name);
 
@@ -2291,6 +2299,9 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
          * been set up again in the meantime (but not processed yet by PA).
          * BlueZ should probably release the transport automatically, and in
          * that case we would just mark the transport as released */
+
+        pa_log_debug("Releasing transport for profile %s",
+                     pa_bluetooth_profile_to_string(t->profile));
 
         /* Remote side closed the stream so we consider it PA_SUSPEND_USER */
         if (u->source) {
