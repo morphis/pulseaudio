@@ -1400,7 +1400,7 @@ static int setup_transport(struct userdata *u) {
     pa_bluetooth_transport *t;
 
     pa_assert(u);
-    pa_assert(!u->transport);
+    pa_assert(!u->transport_acquired);
     pa_assert(u->profile != PA_BLUETOOTH_PROFILE_OFF);
 
     pa_log_debug("profile %s", pa_bluetooth_profile_to_string(u->profile));
