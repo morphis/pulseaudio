@@ -1808,7 +1808,8 @@ static void stop_thread(struct userdata *u) {
 
     if (u->transport) {
         transport_release(u);
-        u->transport = NULL;
+        /* Do not set transport pointer to NULL. When failing to switch
+         * profile NULL u->transport would assert. */
     }
 
     if (u->sink) {
