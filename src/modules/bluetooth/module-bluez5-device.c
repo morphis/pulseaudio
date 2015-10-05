@@ -770,7 +770,7 @@ static int transport_acquire(struct userdata *u, bool optional) {
     pa_assert(u->transport);
 
     if (u->transport_acquire_pending)
-        return 0;
+        return -1;
 
     if (u->transport_acquired) {
         pa_log_debug("Transport already acquired");
