@@ -1,0 +1,1250 @@
+From da51e9403e1cf484391984fc21f7174d150c01da Mon Sep 17 00:00:00 2001
+From: Simon Fels <simon.fels@canonical.com>
+Date: Mon, 5 Oct 2015 09:32:27 +0200
+Subject: [PATCH] Add support for HFP with BlueZ 5.x
+
+The current bluetooth support implementation for BlueZ 5.x doesn't
+support acting as the gateway role or the available SCO over PCM
+feature the BlueZ 4 implementation has build in. This brings back
+support for SCO over PCM and also adjusts the implementation to
+support the gateway role of HFP. Furthermore it fixes some bugs to
+setup the routing correctly forth and back.
+
+These changes are intended to go upstream. However further cleanup
+work is required.
+---
+ src/modules/bluetooth/backend-ofono.c          | 164 ++++++--
+ src/modules/bluetooth/bluez5-util.c            |  18 +-
+ src/modules/bluetooth/bluez5-util.h            |   2 +
+ src/modules/bluetooth/module-bluez5-device.c   | 511 +++++++++++++++++++++----
+ src/modules/bluetooth/module-bluez5-discover.c |  42 +-
+ 5 files changed, 636 insertions(+), 101 deletions(-)
+
+diff --git a/src/modules/bluetooth/backend-ofono.c b/src/modules/bluetooth/backend-ofono.c
+index 755df9e..b2b0351 100644
+--- a/src/modules/bluetooth/backend-ofono.c
++++ b/src/modules/bluetooth/backend-ofono.c
+@@ -37,6 +37,7 @@
+ #define OFONO_SERVICE "org.ofono"
+ #define HF_AUDIO_AGENT_INTERFACE OFONO_SERVICE ".HandsfreeAudioAgent"
+ #define HF_AUDIO_MANAGER_INTERFACE OFONO_SERVICE ".HandsfreeAudioManager"
++#define HF_AUDIO_CARD_INTERFACE OFONO_SERVICE ".HandsfreeAudioCard"
+ 
+ #define HF_AUDIO_AGENT_PATH "/HandsfreeAudioAgent"
+ 
+@@ -156,12 +157,51 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
+     pa_assert(card);
+ 
+     if (!optional) {
+-        DBusMessage *m;
++        DBusMessage *m, *r;
++        DBusDispatchStatus dispatch_status = DBUS_DISPATCH_DATA_REMAINS;
++
++        pa_log_debug("Acquiring transport from ofono for card %s",
++                     card->path);
+ 
+         pa_assert_se(m = dbus_message_new_method_call(t->owner, t->path, "org.ofono.HandsfreeAudioCard", "Connect"));
+-        pa_assert_se(dbus_connection_send(pa_dbus_connection_get(card->backend->connection), m, NULL));
+ 
+-        return -1;
++        /* We need to block here for the reply as otherwise we wouldn't fit
++         * into the what is expected from us when we return. */
++        r = dbus_connection_send_with_reply_and_block(pa_dbus_connection_get(card->backend->connection), m, -1, NULL);
++        if (!r) {
++            pa_log_error("Failed to connect remote handsfree audio card for transport at %s", t->path);
++            return -1;
++        }
++
++        pa_log_debug("Handsfree audio card %s got connected", card->path);
++
++        /* Dispatch all incoming messages as we should have received the
++         * NewConnection one on our HandsfreeAgent interface already at
++         * this point. */
++        while (dispatch_status != DBUS_DISPATCH_COMPLETE) {
++            pa_log_debug("Dispatching all outstanding dbus messages ...");
++
++            dispatch_status = dbus_connection_dispatch(pa_dbus_connection_get(card->backend->connection));
++
++            if (card->fd > 0)
++                break;
++        }
++
++        if (card->fd < 0) {
++            pa_log_warn("Didn't got a connection shared from ofono yet");
++            return -1;
++        }
++
++        pa_log_debug("Setting up SCO connection (fd %u) for card %s",
++                     card->fd, card->path);
++
++        err = socket_accept(card->fd);
++        if (err < 0) {
++            pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
++            return -1;
++        }
++
++        return card->fd;
+     }
+ 
+     /* The correct block size should take into account the SCO MTU from
+@@ -190,18 +230,69 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
+ 
+     pa_assert(card);
+ 
++    pa_log_debug("Release transport for card %s (fd %u)",
++                 card->path, card->fd);
++
+     if (t->state <= PA_BLUETOOTH_TRANSPORT_STATE_IDLE) {
+         pa_log_info("Transport %s already released", t->path);
+         return;
+     }
+ 
+-    if (card->fd < 0)
+-        return;
++    if (card->fd > 0) {
++        /* shutdown to make sure connection is dropped immediately */
++        shutdown(card->fd, SHUT_RDWR);
++        close(card->fd);
++        card->fd = -1;
++    }
+ 
+-    /* shutdown to make sure connection is dropped immediately */
+-    shutdown(card->fd, SHUT_RDWR);
+-    close(card->fd);
+-    card->fd = -1;
++    /* in any case switch the transport to idle */
++    pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
++}
++
++static void set_property(pa_dbus_connection *conn, const char *bus, const char *path, const char *interface,
++                         const char *prop_name, int prop_type, void *prop_value) {
++    DBusMessage *m;
++    DBusMessageIter i;
++
++    pa_assert(conn);
++    pa_assert(path);
++    pa_assert(interface);
++    pa_assert(prop_name);
++
++    pa_assert_se(m = dbus_message_new_method_call(bus, path, interface, "SetProperty"));
++    dbus_message_iter_init_append(m, &i);
++    dbus_message_iter_append_basic(&i, DBUS_TYPE_STRING, &prop_name);
++    pa_dbus_append_basic_variant(&i, prop_type, prop_value);
++
++    dbus_message_set_no_reply(m, true);
++    pa_assert_se(dbus_connection_send(pa_dbus_connection_get(conn), m, NULL));
++    dbus_message_unref(m);
++}
++
++static void hf_audio_card_set_speaker_gain(pa_bluetooth_transport *t, uint16_t gain)
++{
++    struct hf_audio_card *card = t->userdata;
++
++    pa_assert(card);
++
++    pa_log_debug("Setting speaker gain for card %s to %u",
++                 card->path, gain);
++
++    set_property(card->backend->connection, OFONO_SERVICE, card->path,
++                 HF_AUDIO_CARD_INTERFACE, "SpeakerGain", DBUS_TYPE_UINT16, &gain);
++}
++
++static void hf_audio_card_set_microphone_gain(pa_bluetooth_transport *t, uint16_t gain)
++{
++    struct hf_audio_card *card = t->userdata;
++
++    pa_assert(card);
++
++    pa_log_debug("Setting microphone gain for card %s to %u",
++                 card->path, gain);
++
++    set_property(card->backend->connection, OFONO_SERVICE, card->path,
++                 HF_AUDIO_CARD_INTERFACE, "MicrophoneGain", DBUS_TYPE_UINT16, &gain);
+ }
+ 
+ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char *path, DBusMessageIter *props_i) {
+@@ -209,6 +300,7 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char
+     const char *key, *value;
+     struct hf_audio_card *card;
+     pa_bluetooth_device *d;
++    pa_bluetooth_profile_t profile = PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY;
+ 
+     pa_assert(backend);
+     pa_assert(path);
+@@ -227,23 +319,30 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char
+         dbus_message_iter_next(&i);
+         dbus_message_iter_recurse(&i, &value_i);
+ 
+-        if ((c = dbus_message_iter_get_arg_type(&value_i)) != DBUS_TYPE_STRING) {
+-            pa_log_error("Invalid properties for %s: expected 's', received '%c'", path, c);
+-            goto fail;
+-        }
++        if ((c = dbus_message_iter_get_arg_type(&value_i)) == DBUS_TYPE_STRING) {
++            dbus_message_iter_get_basic(&value_i, &value);
++
++            if (pa_streq(key, "Type")) {
++                if (pa_streq(value, "gateway"))
++                    profile = PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT;
++                else if (pa_streq(value, "handsfree"))
++                    profile = PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY;
++            } else if (pa_streq(key, "RemoteAddress")) {
++                pa_xfree(card->remote_address);
++                card->remote_address = pa_xstrdup(value);
++            } else if (pa_streq(key, "LocalAddress")) {
++                pa_xfree(card->local_address);
++                card->local_address = pa_xstrdup(value);
++            }
+ 
+-        dbus_message_iter_get_basic(&value_i, &value);
++            pa_log_debug("%s: %s", key, value);
+ 
+-        if (pa_streq(key, "RemoteAddress")) {
+-            pa_xfree(card->remote_address);
+-            card->remote_address = pa_xstrdup(value);
+-        } else if (pa_streq(key, "LocalAddress")) {
+-            pa_xfree(card->local_address);
+-            card->local_address = pa_xstrdup(value);
++        } else if ((c = dbus_message_iter_get_arg_type(&value_i)) == DBUS_TYPE_UINT16) {
++            /* Ignore for now */
++        } else {
++            pa_log_error("Invalid properties for %s: expected 's' or 'q', received '%c'", path, c);
+         }
+ 
+-        pa_log_debug("%s: %s", key, value);
+-
+         dbus_message_iter_next(props_i);
+     }
+ 
+@@ -253,9 +352,11 @@ static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char
+         goto fail;
+     }
+ 
+-    card->transport = pa_bluetooth_transport_new(d, backend->ofono_bus_id, path, PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY, NULL, 0);
++    card->transport = pa_bluetooth_transport_new(d, backend->ofono_bus_id, path, profile, NULL, 0);
+     card->transport->acquire = hf_audio_agent_transport_acquire;
+     card->transport->release = hf_audio_agent_transport_release;
++    card->transport->set_speaker_gain = hf_audio_card_set_speaker_gain;
++    card->transport->set_microphone_gain = hf_audio_card_set_microphone_gain;
+     card->transport->userdata = card;
+ 
+     pa_bluetooth_transport_put(card->transport);
+@@ -529,12 +630,25 @@ static DBusMessage *hf_audio_agent_new_connection(DBusConnection *c, DBusMessage
+ 
+     card = pa_hashmap_get(backend->cards, path);
+ 
+-    if (!card || codec != HFP_AUDIO_CODEC_CVSD || card->transport->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING) {
+-        pa_log_warn("New audio connection invalid arguments (path=%s fd=%d, codec=%d)", path, fd, codec);
++    if (!card || codec != HFP_AUDIO_CODEC_CVSD) {
++        pa_log_warn("New audio connection invalid arguments (path=%s fd=%d, codec=%d, transport [state=%s, profile=%s])",
++                    path, fd, codec,
++                    card ? pa_bluetooth_transport_state_to_string(card->transport->state) : "unknown",
++                    card ? pa_bluetooth_profile_to_string(card->transport->profile) : "unknown");
+         pa_assert_se(r = dbus_message_new_error(m, "org.ofono.Error.InvalidArguments", "Invalid arguments in method call"));
+         return r;
+     }
+ 
++    if (card->transport->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING) {
++        pa_log_warn("Could not activate new audio connection as it is already active!? "
++                    "(path=%s fd=%d, codec=%d, transport [state=%s, profile=%s])",
++                    path, fd, codec,
++                    pa_bluetooth_transport_state_to_string(card->transport->state),
++                    pa_bluetooth_profile_to_string(card->transport->profile));
++        pa_assert_se(r = dbus_message_new_error(m, "org.ofono.Error.InvalidArguments", "Transport is already active"));
++        return r;
++    }
++
+     pa_log_debug("New audio connection on card %s (fd=%d, codec=%d)", path, fd, codec);
+ 
+     card->fd = fd;
+diff --git a/src/modules/bluetooth/bluez5-util.c b/src/modules/bluetooth/bluez5-util.c
+index 03c76bf..f86ff36 100644
+--- a/src/modules/bluetooth/bluez5-util.c
++++ b/src/modules/bluetooth/bluez5-util.c
+@@ -915,7 +915,9 @@ static void get_managed_objects_reply(DBusPendingCall *pending, void *userdata)
+ 
+     if (!y->ofono_backend && y->headset_backend != HEADSET_BACKEND_NATIVE)
+         y->ofono_backend = pa_bluetooth_ofono_backend_new(y->core, y);
+-    if (!y->ofono_backend && !y->native_backend && y->headset_backend != HEADSET_BACKEND_OFONO)
++    if (!y->ofono_backend && !y->native_backend && y->headset_backend != HEADSET_BACKEND_BOTH)
++        y->native_backend = pa_bluetooth_native_backend_new(y->core, y);
++    else if (!y->ofono_backend && !y->native_backend)
+         y->native_backend = pa_bluetooth_native_backend_new(y->core, y);
+ 
+ finish:
+@@ -1158,6 +1160,20 @@ const char *pa_bluetooth_profile_to_string(pa_bluetooth_profile_t profile) {
+     return NULL;
+ }
+ 
++const char *pa_bluetooth_transport_state_to_string(pa_bluetooth_transport_state_t state)
++{
++    switch (state) {
++        case PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED:
++            return "disconnected";
++        case PA_BLUETOOTH_TRANSPORT_STATE_IDLE:
++            return "idle";
++        case PA_BLUETOOTH_TRANSPORT_STATE_PLAYING:
++            return "playing";
++    }
++
++    return NULL;
++}
++
+ static DBusMessage *endpoint_set_configuration(DBusConnection *conn, DBusMessage *m, void *userdata) {
+     pa_bluetooth_discovery *y = userdata;
+     pa_bluetooth_device *d;
+diff --git a/src/modules/bluetooth/bluez5-util.h b/src/modules/bluetooth/bluez5-util.h
+index d66e8a3..3f97de7 100644
+--- a/src/modules/bluetooth/bluez5-util.h
++++ b/src/modules/bluetooth/bluez5-util.h
+@@ -151,10 +151,12 @@ pa_bluetooth_device* pa_bluetooth_discovery_get_device_by_address(pa_bluetooth_d
+ pa_hook* pa_bluetooth_discovery_hook(pa_bluetooth_discovery *y, pa_bluetooth_hook_t hook);
+ 
+ const char *pa_bluetooth_profile_to_string(pa_bluetooth_profile_t profile);
++const char *pa_bluetooth_transport_state_to_string(pa_bluetooth_transport_state_t state);
+ 
+ #define HEADSET_BACKEND_OFONO 0
+ #define HEADSET_BACKEND_NATIVE 1
+ #define HEADSET_BACKEND_AUTO 2
++#define HEADSET_BACKEND_BOTH 3
+ 
+ pa_bluetooth_discovery* pa_bluetooth_discovery_get(pa_core *core, int headset_backend);
+ pa_bluetooth_discovery* pa_bluetooth_discovery_ref(pa_bluetooth_discovery *y);
+diff --git a/src/modules/bluetooth/module-bluez5-device.c b/src/modules/bluetooth/module-bluez5-device.c
+index 7238e6f..1a6e5df 100644
+--- a/src/modules/bluetooth/module-bluez5-device.c
++++ b/src/modules/bluetooth/module-bluez5-device.c
+@@ -30,6 +30,7 @@
+ #include <pulse/rtclock.h>
+ #include <pulse/timeval.h>
+ 
++#include <pulsecore/core.h>
+ #include <pulsecore/core-error.h>
+ #include <pulsecore/core-rtclock.h>
+ #include <pulsecore/core-util.h>
+@@ -43,6 +44,8 @@
+ #include <pulsecore/thread.h>
+ #include <pulsecore/thread-mq.h>
+ #include <pulsecore/time-smoother.h>
++#include <pulsecore/namereg.h>
++#include <pulse/mainloop-api.h>
+ 
+ #include "a2dp-codecs.h"
+ #include "bluez5-util.h"
+@@ -54,7 +57,10 @@ PA_MODULE_AUTHOR("João Paulo Rechi Vita");
+ PA_MODULE_DESCRIPTION("BlueZ 5 Bluetooth audio sink and source");
+ PA_MODULE_VERSION(PACKAGE_VERSION);
+ PA_MODULE_LOAD_ONCE(false);
+-PA_MODULE_USAGE("path=<device object path>");
++PA_MODULE_USAGE("path=<device object path> "
++                "profile=<a2dp|hsp|hfgw> "
++                "sco_sink=<name of sink> "
++                "sco_source=<name of source> ");
+ 
+ #define MAX_PLAYBACK_CATCH_UP_USEC (100 * PA_USEC_PER_MSEC)
+ #define FIXED_LATENCY_PLAYBACK_A2DP (25 * PA_USEC_PER_MSEC)
+@@ -66,8 +72,13 @@ PA_MODULE_USAGE("path=<device object path>");
+ #define BITPOOL_DEC_STEP 5
+ #define HSP_MAX_GAIN 15
+ 
++#define USE_SCO_OVER_PCM(u) (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT && (u->hsp.sco_sink && u->hsp.sco_source))
++
+ static const char* const valid_modargs[] = {
+     "path",
++    "profile",
++    "sco_sink",
++    "sco_source",
+     NULL
+ };
+ 
+@@ -96,15 +107,30 @@ typedef struct sbc_info {
+     size_t buffer_size;                  /* Size of the buffer */
+ } sbc_info_t;
+ 
++struct hsp_info {
++    pa_sink *sco_sink;
++    void (*sco_sink_set_volume)(pa_sink *s);
++    pa_source *sco_source;
++    void (*sco_source_set_volume)(pa_source *s);
++};
++
+ struct userdata {
+     pa_module *module;
+     pa_core *core;
+ 
++    pa_modargs *modargs;
++
+     pa_hook_slot *device_connection_changed_slot;
+     pa_hook_slot *transport_state_changed_slot;
+     pa_hook_slot *transport_speaker_gain_changed_slot;
+     pa_hook_slot *transport_microphone_gain_changed_slot;
+ 
++    pa_hook_slot *sink_state_changed_slot;
++    pa_hook_slot *source_state_changed_slot;
++
++    pa_hook_slot *sco_sink_proplist_changed_slot;
++    bool prevent_suspend_transport;
++
+     pa_bluetooth_discovery *discovery;
+     pa_bluetooth_device *device;
+     pa_bluetooth_transport *transport;
+@@ -136,6 +162,11 @@ struct userdata {
+     pa_memchunk write_memchunk;
+     pa_sample_spec sample_spec;
+     struct sbc_info sbc_info;
++    struct hsp_info hsp;
++
++    char *default_profile;
++    bool transport_acquire_pending;
++    pa_io_event *stream_event;
+ };
+ 
+ typedef enum pa_bluetooth_form_factor {
+@@ -712,6 +743,11 @@ static void teardown_stream(struct userdata *u) {
+         u->rtpoll_item = NULL;
+     }
+ 
++    if (u->stream_event) {
++        u->core->mainloop->io_free(u->stream_event);
++        u->stream_event = NULL;
++    }
++
+     if (u->stream_fd >= 0) {
+         pa_close(u->stream_fd);
+         u->stream_fd = -1;
+@@ -733,18 +769,29 @@ static void teardown_stream(struct userdata *u) {
+ static int transport_acquire(struct userdata *u, bool optional) {
+     pa_assert(u->transport);
+ 
+-    if (u->transport_acquired)
++    if (u->transport_acquire_pending)
++        return -1;
++
++    if (u->transport_acquired) {
++        pa_log_debug("Transport already acquired");
+         return 0;
++    }
++
++    u->transport_acquire_pending = true;
+ 
+     pa_log_debug("Acquiring transport %s", u->transport->path);
+ 
+     u->stream_fd = u->transport->acquire(u->transport, optional, &u->read_link_mtu, &u->write_link_mtu);
+-    if (u->stream_fd < 0)
++    if (u->stream_fd < 0) {
++        u->transport_acquire_pending = false;
+         return -1;
++    }
+ 
+     u->transport_acquired = true;
+     pa_log_info("Transport %s acquired: fd %d", u->transport->path, u->stream_fd);
+ 
++    u->transport_acquire_pending = false;
++
+     return 0;
+ }
+ 
+@@ -766,6 +813,10 @@ static void transport_release(struct userdata *u) {
+ 
+ /* Run from I/O thread */
+ static void transport_config_mtu(struct userdata *u) {
++
++    pa_log_debug("Configuring MTU for transport of profile %s",
++                 pa_bluetooth_profile_to_string(u->profile));
++
+     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
+         u->read_block_size = u->read_link_mtu;
+         u->write_block_size = u->write_link_mtu;
+@@ -779,6 +830,9 @@ static void transport_config_mtu(struct userdata *u) {
+             / u->sbc_info.frame_length * u->sbc_info.codesize;
+     }
+ 
++    if (USE_SCO_OVER_PCM(u))
++        return;
++
+     if (u->sink) {
+         pa_sink_set_max_request_within_thread(u->sink, u->write_block_size);
+         pa_sink_set_fixed_latency_within_thread(u->sink,
+@@ -794,7 +848,7 @@ static void transport_config_mtu(struct userdata *u) {
+                                                   pa_bytes_to_usec(u->read_block_size, &u->sample_spec));
+ }
+ 
+-/* Run from I/O thread */
++/* Run from I/O thread except in SCO over PCM */
+ static void setup_stream(struct userdata *u) {
+     struct pollfd *pollfd;
+     int one;
+@@ -943,49 +997,116 @@ static int add_source(struct userdata *u) {
+ 
+     pa_assert(u->transport);
+ 
+-    pa_source_new_data_init(&data);
+-    data.module = u->module;
+-    data.card = u->card;
+-    data.driver = __FILE__;
+-    data.name = pa_sprintf_malloc("bluez_source.%s", u->device->address);
+-    data.namereg_fail = false;
+-    pa_proplist_sets(data.proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
+-    pa_source_new_data_set_sample_spec(&data, &u->sample_spec);
+-    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)
+-        pa_proplist_sets(data.proplist, PA_PROP_DEVICE_INTENDED_ROLES, "phone");
+-
+-    connect_ports(u, &data, PA_DIRECTION_INPUT);
++    if (USE_SCO_OVER_PCM(u)) {
++        u->source = u->hsp.sco_source;
++        pa_proplist_sets(u->source->proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
++    } else {
++        pa_source_new_data_init(&data);
++        data.module = u->module;
++        data.card = u->card;
++        data.driver = __FILE__;
++        data.name = pa_sprintf_malloc("bluez_source.%s", u->device->address);
++        data.namereg_fail = false;
++        pa_proplist_sets(data.proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
++        pa_source_new_data_set_sample_spec(&data, &u->sample_spec);
++        if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)
++            pa_proplist_sets(data.proplist, PA_PROP_DEVICE_INTENDED_ROLES, "phone");
++
++        connect_ports(u, &data, PA_DIRECTION_INPUT);
++
++        if (!u->transport_acquired)
++            switch (u->profile) {
++                case PA_BLUETOOTH_PROFILE_A2DP_SOURCE:
++                case PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY:
++                    data.suspend_cause = PA_SUSPEND_USER;
++                    break;
++                case PA_BLUETOOTH_PROFILE_A2DP_SINK:
++                case PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT:
++                case PA_BLUETOOTH_PROFILE_OFF:
++                    pa_assert_not_reached();
++                    break;
++            }
+ 
+-    if (!u->transport_acquired)
+-        switch (u->profile) {
+-            case PA_BLUETOOTH_PROFILE_A2DP_SOURCE:
+-            case PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY:
+-                data.suspend_cause = PA_SUSPEND_USER;
+-                break;
+-            case PA_BLUETOOTH_PROFILE_A2DP_SINK:
+-            case PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT:
+-            case PA_BLUETOOTH_PROFILE_OFF:
+-                pa_assert_not_reached();
+-                break;
++        u->source = pa_source_new(u->core, &data, PA_SOURCE_HARDWARE|PA_SOURCE_LATENCY);
++        pa_source_new_data_done(&data);
++        if (!u->source) {
++            pa_log_error("Failed to create source");
++            return -1;
+         }
+ 
+-    u->source = pa_source_new(u->core, &data, PA_SOURCE_HARDWARE|PA_SOURCE_LATENCY);
+-    pa_source_new_data_done(&data);
+-    if (!u->source) {
+-        pa_log_error("Failed to create source");
+-        return -1;
++        u->source->userdata = u;
++        u->source->parent.process_msg = source_process_msg;
+     }
+ 
+-    u->source->userdata = u;
+-    u->source->parent.process_msg = source_process_msg;
+-
+     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT) {
+         pa_source_set_set_volume_callback(u->source, source_set_volume_cb);
+         u->source->n_volume_steps = 16;
+     }
++
+     return 0;
+ }
+ 
++#define HSP_PREVENT_SUSPEND_STR "bluetooth.hsp.prevent.suspend.transport"
++
++/* Check and update prevent_suspend_transport value from sco sink proplist.
++ *
++ * Return < 0 if sink proplist doesn't contain HSP_PREVENT_SUSPEND_STR value,
++ * 1 if value is 'true'
++ * 0 if value is something else. */
++static int check_proplist(struct userdata *u) {
++    int ret;
++    const char *str;
++
++    pa_assert(u);
++    pa_assert(u->hsp.sco_sink);
++
++    if ((str = pa_proplist_gets(u->hsp.sco_sink->proplist, HSP_PREVENT_SUSPEND_STR))) {
++        if (pa_streq(str, "true"))
++            ret = 1;
++        else
++            ret = 0;
++    } else
++        ret = -1;
++
++    u->prevent_suspend_transport = ret == 1;
++
++    pa_log_debug("Set %s %s", HSP_PREVENT_SUSPEND_STR, u->prevent_suspend_transport ? "true" : "false");
++
++    return ret;
++}
++
++/* There are cases where keeping the transport running even when sco sink and source are suspended
++ * is needed.
++ * To work with these cases, check sco.sink for bluetooth.hsp.prevent.suspend.transport value, and
++ * when set to true prevent closing the transport when sink suspends.
++ * Also, if the sink&source are suspended when sco-sink suspend.transport value changes to true,
++ * bring sco transport up. When suspend.transport value changes to false while sink&source are suspended,
++ * tear down the transport. */
++static pa_hook_result_t update_allow_release_cb(pa_core *c, pa_sink *s, struct userdata *u) {
++    pa_assert(u);
++    pa_assert(s);
++
++    if (!u->hsp.sco_sink || u->hsp.sco_sink != s)
++        return PA_HOOK_OK;
++
++    if (check_proplist(u) < 0)
++        return PA_HOOK_OK;
++
++    if (!USE_SCO_OVER_PCM(u)) {
++        pa_log_debug("SCO sink not available.");
++        return PA_HOOK_OK;
++    }
++
++    if (!PA_SINK_IS_OPENED(pa_sink_get_state(u->hsp.sco_sink)) &&
++        !PA_SOURCE_IS_OPENED(pa_source_get_state(u->hsp.sco_source))) {
++
++        /* Clear all suspend bits, effectively resuming SCO sink for a while. */
++        pa_sink_suspend(s, false, PA_SUSPEND_ALL);
++    }
++
++    return PA_HOOK_OK;
++}
++
+ /* Run from IO thread */
+ static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+     struct userdata *u = PA_SINK(o)->userdata;
+@@ -1100,52 +1221,67 @@ static int add_sink(struct userdata *u) {
+ 
+     pa_assert(u->transport);
+ 
+-    pa_sink_new_data_init(&data);
+-    data.module = u->module;
+-    data.card = u->card;
+-    data.driver = __FILE__;
+-    data.name = pa_sprintf_malloc("bluez_sink.%s", u->device->address);
+-    data.namereg_fail = false;
+-    pa_proplist_sets(data.proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
+-    pa_sink_new_data_set_sample_spec(&data, &u->sample_spec);
+-    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)
+-        pa_proplist_sets(data.proplist, PA_PROP_DEVICE_INTENDED_ROLES, "phone");
++    if (USE_SCO_OVER_PCM(u)) {
++        pa_proplist *p;
+ 
+-    connect_ports(u, &data, PA_DIRECTION_OUTPUT);
++        u->sink = u->hsp.sco_sink;
++        p = pa_proplist_new();
++        pa_proplist_sets(p, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
++        pa_proplist_update(u->sink->proplist, PA_UPDATE_MERGE, p);
++        pa_proplist_free(p);
++    } else {
++        pa_sink_new_data_init(&data);
++        data.module = u->module;
++        data.card = u->card;
++        data.driver = __FILE__;
++        data.name = pa_sprintf_malloc("bluez_sink.%s", u->device->address);
++        data.namereg_fail = false;
++        pa_proplist_sets(data.proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
++        pa_sink_new_data_set_sample_spec(&data, &u->sample_spec);
++        if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)
++            pa_proplist_sets(data.proplist, PA_PROP_DEVICE_INTENDED_ROLES, "phone");
++
++        connect_ports(u, &data, PA_DIRECTION_OUTPUT);
++
++        if (!u->transport_acquired)
++            switch (u->profile) {
++                case PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY:
++                    data.suspend_cause = PA_SUSPEND_USER;
++                    break;
++                case PA_BLUETOOTH_PROFILE_A2DP_SINK:
++                    /* Profile switch should have failed */
++                case PA_BLUETOOTH_PROFILE_A2DP_SOURCE:
++                case PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT:
++                case PA_BLUETOOTH_PROFILE_OFF:
++                    pa_assert_not_reached();
++                    break;
++            }
+ 
+-    if (!u->transport_acquired)
+-        switch (u->profile) {
+-            case PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY:
+-                data.suspend_cause = PA_SUSPEND_USER;
+-                break;
+-            case PA_BLUETOOTH_PROFILE_A2DP_SINK:
+-                /* Profile switch should have failed */
+-            case PA_BLUETOOTH_PROFILE_A2DP_SOURCE:
+-            case PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT:
+-            case PA_BLUETOOTH_PROFILE_OFF:
+-                pa_assert_not_reached();
+-                break;
++        u->sink = pa_sink_new(u->core, &data, PA_SINK_HARDWARE|PA_SINK_LATENCY);
++        pa_sink_new_data_done(&data);
++        if (!u->sink) {
++            pa_log_error("Failed to create sink");
++            return -1;
+         }
+ 
+-    u->sink = pa_sink_new(u->core, &data, PA_SINK_HARDWARE|PA_SINK_LATENCY);
+-    pa_sink_new_data_done(&data);
+-    if (!u->sink) {
+-        pa_log_error("Failed to create sink");
+-        return -1;
++        u->sink->userdata = u;
++        u->sink->parent.process_msg = sink_process_msg;
+     }
+ 
+-    u->sink->userdata = u;
+-    u->sink->parent.process_msg = sink_process_msg;
+-
+     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT) {
+         pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
+         u->sink->n_volume_steps = 16;
+     }
++
+     return 0;
+ }
+ 
+ /* Run from main thread */
+ static void transport_config(struct userdata *u) {
++
++    pa_log_debug("Configuring transport for profile %s",
++                 pa_bluetooth_profile_to_string(u->profile));
++
+     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
+         u->sample_spec.format = PA_SAMPLE_S16LE;
+         u->sample_spec.channels = 1;
+@@ -1264,11 +1400,18 @@ static int setup_transport(struct userdata *u) {
+     pa_bluetooth_transport *t;
+ 
+     pa_assert(u);
+-    pa_assert(!u->transport);
++    pa_assert(!u->transport_acquired);
+     pa_assert(u->profile != PA_BLUETOOTH_PROFILE_OFF);
+ 
++    pa_log_debug("profile %s", pa_bluetooth_profile_to_string(u->profile));
++
+     /* check if profile has a transport */
+     t = u->device->transports[u->profile];
++
++    pa_log_debug("profile %s transport %p transport state %s",
++                 pa_bluetooth_profile_to_string(u->profile),
++                 t, t ? pa_bluetooth_transport_state_to_string(t->state) : "unknown");
++
+     if (!t || t->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED) {
+         pa_log_warn("Profile has no transport");
+         return -1;
+@@ -1305,11 +1448,16 @@ static int init_profile(struct userdata *u) {
+     pa_assert(u);
+     pa_assert(u->profile != PA_BLUETOOTH_PROFILE_OFF);
+ 
++    pa_log_debug("Initializing profile %s", pa_bluetooth_profile_to_string(u->profile));
++
+     if (setup_transport(u) < 0)
+         return -1;
+ 
+     pa_assert(u->transport);
+ 
++    pa_log_debug("Transport for profile %s successfully setup",
++                 pa_bluetooth_profile_to_string(u->profile));
++
+     if (get_profile_direction (u->profile) & PA_DIRECTION_OUTPUT)
+         if (add_sink(u) < 0)
+             r = -1;
+@@ -1517,6 +1665,65 @@ finish:
+     pa_log_debug("IO thread shutting down");
+ }
+ 
++static int sco_over_pcm_state_update(struct userdata *u, bool changed)
++{
++    pa_assert(u);
++    pa_assert(USE_SCO_OVER_PCM(u));
++
++    pa_log_debug("Updating SCO over PCM state (profile %s)",
++                 pa_bluetooth_profile_to_string(u->profile));
++
++    if (PA_SINK_IS_OPENED(pa_sink_get_state(u->hsp.sco_sink)) ||
++        PA_SOURCE_IS_OPENED(pa_source_get_state(u->hsp.sco_source))) {
++
++        if (u->stream_fd >= 0)
++            return 0;
++
++        pa_log_debug("Resuming SCO over PCM");
++
++        if (init_profile(u) < 0) {
++            pa_log("Can't resume SCO over PCM");
++            return -1;
++        }
++
++        if (transport_acquire(u, false) < 0)
++            return -1;
++
++        setup_stream(u);
++
++        return 0;
++    }
++
++    if (changed) {
++        if (u->stream_fd < 0)
++            return 0;
++
++        if (check_proplist(u) == 1) {
++            pa_log_debug("Suspend prevention active, not closing SCO over PCM");
++            return 0;
++        }
++
++        pa_log_debug("Closing SCO over PCM");
++
++        transport_release(u);
++    }
++
++    return 0;
++}
++
++static void stream_died_cb(pa_mainloop_api *ea, pa_io_event *e, int fd, pa_io_event_flags_t events, void *userdata)
++{
++    struct userdata *u = userdata;
++
++    pa_assert(u);
++    pa_assert(u->transport);
++
++    pa_log_warn("SCO stream went down");
++
++    pa_bluetooth_transport_set_state(u->transport, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
++
++}
++
+ /* Run from main thread */
+ static int start_thread(struct userdata *u) {
+     pa_assert(u);
+@@ -1527,6 +1734,25 @@ static int start_thread(struct userdata *u) {
+     u->rtpoll = pa_rtpoll_new();
+     pa_thread_mq_init(&u->thread_mq, u->core->mainloop, u->rtpoll);
+ 
++    if (USE_SCO_OVER_PCM(u)) {
++        if (sco_over_pcm_state_update(u, false) < 0)
++            return -1;
++
++        pa_log_debug("Installing monitor for SCO stream");
++
++        u->stream_event = u->core->mainloop->io_new(u->core->mainloop,
++                            u->stream_fd, PA_IO_EVENT_HANGUP | PA_IO_EVENT_ERROR, stream_died_cb, u);
++        if (!u->stream_event) {
++            pa_log_error("Failed to setup monitoring for SCO stream");
++            return -1;
++        }
++
++        pa_sink_ref(u->sink);
++        pa_source_ref(u->source);
++
++        return 0;
++    }
++
+     if (!(u->thread = pa_thread_new("bluetooth", thread_func, u))) {
+         pa_log_error("Failed to create IO thread");
+         return -1;
+@@ -1557,10 +1783,10 @@ static int start_thread(struct userdata *u) {
+ static void stop_thread(struct userdata *u) {
+     pa_assert(u);
+ 
+-    if (u->sink)
++    if (u->sink && !USE_SCO_OVER_PCM(u))
+         pa_sink_unlink(u->sink);
+ 
+-    if (u->source)
++    if (u->source && !USE_SCO_OVER_PCM(u))
+         pa_source_unlink(u->source);
+ 
+     if (u->thread) {
+@@ -1582,7 +1808,8 @@ static void stop_thread(struct userdata *u) {
+ 
+     if (u->transport) {
+         transport_release(u);
+-        u->transport = NULL;
++        /* Do not set transport pointer to NULL. When failing to switch
++         * profile NULL u->transport would assert. */
+     }
+ 
+     if (u->sink) {
+@@ -1840,6 +2067,22 @@ static pa_card_profile *create_card_profile(struct userdata *u, const char *uuid
+     return cp;
+ }
+ 
++static void save_sco_volume_callbacks(struct userdata *u) {
++    pa_assert(u);
++    pa_assert(USE_SCO_OVER_PCM(u));
++
++    u->hsp.sco_sink_set_volume = u->hsp.sco_sink->set_volume;
++    u->hsp.sco_source_set_volume = u->hsp.sco_source->set_volume;
++}
++
++static void restore_sco_volume_callbacks(struct userdata *u) {
++    pa_assert(u);
++    pa_assert(USE_SCO_OVER_PCM(u));
++
++    pa_sink_set_set_volume_callback(u->hsp.sco_sink, u->hsp.sco_sink_set_volume);
++    pa_source_set_set_volume_callback(u->hsp.sco_source, u->hsp.sco_source_set_volume);
++}
++
+ /* Run from main thread */
+ static int set_profile_cb(pa_card *c, pa_card_profile *new_profile) {
+     struct userdata *u;
+@@ -1851,11 +2094,22 @@ static int set_profile_cb(pa_card *c, pa_card_profile *new_profile) {
+ 
+     p = PA_CARD_PROFILE_DATA(new_profile);
+ 
++    pa_log_debug("Setting new profile %s for card (current %s)",
++                 pa_bluetooth_profile_to_string(*p),
++                 pa_bluetooth_profile_to_string(u->profile));
++
+     if (*p != PA_BLUETOOTH_PROFILE_OFF) {
+         const pa_bluetooth_device *d = u->device;
+ 
+         if (!d->transports[*p] || d->transports[*p]->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED) {
+             pa_log_warn("Refused to switch profile to %s: Not connected", new_profile->name);
++
++            /* For the rare case that we were requested to switch to A2DP
++             * but that failed (due the profile got disconnected) we switch
++             * to off */
++            if (*p == PA_BLUETOOTH_PROFILE_A2DP_SINK)
++                pa_assert_se(pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, "off"), false) >= 0);
++
+             return -PA_ERR_IO;
+         }
+     }
+@@ -1892,6 +2146,7 @@ static int add_card(struct userdata *u) {
+     pa_bluetooth_profile_t *p;
+     const char *uuid;
+     void *state;
++    const char *default_profile;
+ 
+     pa_assert(u);
+     pa_assert(u->device);
+@@ -1944,6 +2199,16 @@ static int add_card(struct userdata *u) {
+     *p = PA_BLUETOOTH_PROFILE_OFF;
+     pa_hashmap_put(data.profiles, cp->name, cp);
+ 
++    if ((default_profile = pa_modargs_get_value(u->modargs, "profile", NULL))) {
++        if (pa_hashmap_get(data.profiles, default_profile)) {
++            pa_card_new_data_set_profile(&data, default_profile);
++            pa_log_debug("Using %s profile as default", default_profile);
++            u->default_profile = pa_xstrdup(default_profile);
++        }
++        else
++            pa_log_warn("Profile '%s' not valid or not supported by device.", default_profile);
++    }
++
+     u->card = pa_card_new(u->core, &data);
+     pa_card_new_data_done(&data);
+     if (!u->card) {
+@@ -1955,8 +2220,23 @@ static int add_card(struct userdata *u) {
+     u->card->set_profile = set_profile_cb;
+ 
+     p = PA_CARD_PROFILE_DATA(u->card->active_profile);
++
++    if (*p != PA_BLUETOOTH_PROFILE_OFF && (!d->transports[*p] ||
++                              d->transports[*p]->state == PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED)) {
++        pa_log_warn("Default profile not connected, selecting off profile");
++        u->card->active_profile = pa_hashmap_get(u->card->profiles, "off");
++        u->card->save_profile = false;
++    }
++
++    p = PA_CARD_PROFILE_DATA(u->card->active_profile);
+     u->profile = *p;
+ 
++    if (USE_SCO_OVER_PCM(u))
++        save_sco_volume_callbacks(u);
++
++    pa_log_debug("Created card (current profile %s)",
++                 pa_bluetooth_profile_to_string(u->profile));
++
+     return 0;
+ }
+ 
+@@ -1972,6 +2252,10 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
+     pa_assert(t);
+     pa_assert_se(cp = pa_hashmap_get(u->card->profiles, pa_bluetooth_profile_to_string(t->profile)));
+ 
++    pa_log_debug("State of transport for profile %s changed to %s",
++                 pa_bluetooth_profile_to_string(t->profile),
++                 pa_bluetooth_transport_state_to_string(t->state));
++
+     oldavail = cp->available;
+     pa_card_profile_set_available(cp, transport_state_to_availability(t->state));
+ 
+@@ -1983,9 +2267,13 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
+ 
+     /* Acquire or release transport as needed */
+     acquire = (t->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
+-    release = (oldavail != PA_AVAILABLE_NO && t->state != PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
++    release = (t->state != PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
+ 
+     if (acquire && transport_acquire(u, true) >= 0) {
++
++        pa_log_debug("Acquiring transport for profile %s",
++                     pa_bluetooth_profile_to_string(t->profile));
++
+         if (u->source) {
+             pa_log_debug("Resuming source %s because its transport state changed to playing", u->source->name);
+ 
+@@ -2013,6 +2301,9 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
+          * BlueZ should probably release the transport automatically, and in
+          * that case we would just mark the transport as released */
+ 
++        pa_log_debug("Releasing transport for profile %s",
++                     pa_bluetooth_profile_to_string(t->profile));
++
+         /* Remote side closed the stream so we consider it PA_SUSPEND_USER */
+         if (u->source) {
+             pa_log_debug("Suspending source %s because the remote end closed the stream", u->source->name);
+@@ -2045,12 +2336,21 @@ static pa_hook_result_t transport_state_changed_cb(pa_bluetooth_discovery *y, pa
+     pa_assert(t);
+     pa_assert(u);
+ 
++    pa_log_debug("State of transport for profile %s has changed to %s",
++                 pa_bluetooth_profile_to_string(t->profile),
++                 pa_bluetooth_transport_state_to_string(t->state));
++
+     if (t == u->transport && t->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED)
+         pa_assert_se(pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, "off"), false) >= 0);
+ 
+     if (t->device == u->device)
+         handle_transport_state_change(u, t);
+ 
++    /* For the case that we've currently the 'off' profile set we need to move
++     * on to a possible configured default profile. */
++    if (u->profile == PA_BLUETOOTH_PROFILE_OFF && pa_bluetooth_device_any_transport_connected(u->device) && u->default_profile)
++        pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, u->default_profile), false);
++
+     return PA_HOOK_OK;
+ }
+ 
+@@ -2102,6 +2402,32 @@ static pa_hook_result_t transport_microphone_gain_changed_cb(pa_bluetooth_discov
+     return PA_HOOK_OK;
+ }
+ 
++static pa_hook_result_t sink_state_changed_cb(pa_core *c, pa_sink *s, struct userdata *u) {
++    pa_assert(c);
++    pa_sink_assert_ref(s);
++    pa_assert(u);
++
++    if (!USE_SCO_OVER_PCM(u) || s != u->hsp.sco_sink)
++        return PA_HOOK_OK;
++
++    sco_over_pcm_state_update(u, true);
++
++    return PA_HOOK_OK;
++}
++
++static pa_hook_result_t source_state_changed_cb(pa_core *c, pa_source *s, struct userdata *u) {
++    pa_assert(c);
++    pa_source_assert_ref(s);
++    pa_assert(u);
++
++    if (!USE_SCO_OVER_PCM(u) || s != u->hsp.sco_source)
++        return PA_HOOK_OK;
++
++    sco_over_pcm_state_update(u, true);
++
++    return PA_HOOK_OK;
++}
++
+ /* Run from main thread context */
+ static int device_process_msg(pa_msgobject *obj, int code, void *data, int64_t offset, pa_memchunk *chunk) {
+     struct bluetooth_msg *m = BLUETOOTH_MSG(obj);
+@@ -2144,6 +2470,18 @@ int pa__init(pa_module* m) {
+         goto fail;
+     }
+ 
++      if (pa_modargs_get_value(ma, "sco_sink", NULL) &&
++        !(u->hsp.sco_sink = pa_namereg_get(m->core, pa_modargs_get_value(ma, "sco_sink", NULL), PA_NAMEREG_SINK))) {
++        pa_log("SCO sink not found");
++        goto fail;
++    }
++
++    if (pa_modargs_get_value(ma, "sco_source", NULL) &&
++        !(u->hsp.sco_source = pa_namereg_get(m->core, pa_modargs_get_value(ma, "sco_source", NULL), PA_NAMEREG_SOURCE))) {
++        pa_log("SCO source not found");
++        goto fail;
++    }
++
+     if ((u->discovery = pa_shared_get(u->core, "bluetooth-discovery")))
+         pa_bluetooth_discovery_ref(u->discovery);
+     else {
+@@ -2156,7 +2494,7 @@ int pa__init(pa_module* m) {
+         goto fail;
+     }
+ 
+-    pa_modargs_free(ma);
++    u->modargs = ma;
+ 
+     u->device_connection_changed_slot =
+         pa_hook_connect(pa_bluetooth_discovery_hook(u->discovery, PA_BLUETOOTH_HOOK_DEVICE_CONNECTION_CHANGED),
+@@ -2172,6 +2510,17 @@ int pa__init(pa_module* m) {
+     u->transport_microphone_gain_changed_slot =
+         pa_hook_connect(pa_bluetooth_discovery_hook(u->discovery, PA_BLUETOOTH_HOOK_TRANSPORT_MICROPHONE_GAIN_CHANGED), PA_HOOK_NORMAL, (pa_hook_cb_t) transport_microphone_gain_changed_cb, u);
+ 
++    u->sink_state_changed_slot =
++        pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_STATE_CHANGED],
++                        PA_HOOK_NORMAL, (pa_hook_cb_t) sink_state_changed_cb, u);
++
++    u->source_state_changed_slot =
++        pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SOURCE_STATE_CHANGED],
++                        PA_HOOK_NORMAL, (pa_hook_cb_t) source_state_changed_cb, u);
++
++    u->sco_sink_proplist_changed_slot =
++        pa_hook_connect(&u->core->hooks[PA_CORE_HOOK_SINK_PROPLIST_CHANGED],
++                        PA_HOOK_NORMAL, (pa_hook_cb_t) update_allow_release_cb, u);
+ 
+     if (add_card(u) < 0)
+         goto fail;
+@@ -2231,12 +2580,24 @@ void pa__done(pa_module *m) {
+     if (u->transport_microphone_gain_changed_slot)
+         pa_hook_slot_free(u->transport_microphone_gain_changed_slot);
+ 
++    if (u->sink_state_changed_slot)
++        pa_hook_slot_free(u->sink_state_changed_slot);
++
++    if (u->source_state_changed_slot)
++        pa_hook_slot_free(u->source_state_changed_slot);
++
++    if (u->sco_sink_proplist_changed_slot)
++        pa_hook_slot_free(u->sco_sink_proplist_changed_slot);
++
+     if (u->sbc_info.buffer)
+         pa_xfree(u->sbc_info.buffer);
+ 
+     if (u->sbc_info.sbc_initialized)
+         sbc_finish(&u->sbc_info.sbc);
+ 
++    if (USE_SCO_OVER_PCM(u))
++        restore_sco_volume_callbacks(u);
++
+     if (u->msg)
+         pa_xfree(u->msg);
+ 
+@@ -2249,6 +2610,12 @@ void pa__done(pa_module *m) {
+     pa_xfree(u->output_port_name);
+     pa_xfree(u->input_port_name);
+ 
++    if (u->modargs)
++        pa_modargs_free(u->modargs);
++
++    if (u->default_profile)
++        pa_xfree(u->default_profile);
++
+     pa_xfree(u);
+ }
+ 
+diff --git a/src/modules/bluetooth/module-bluez5-discover.c b/src/modules/bluetooth/module-bluez5-discover.c
+index 1ccc1d1..1f249cc 100644
+--- a/src/modules/bluetooth/module-bluez5-discover.c
++++ b/src/modules/bluetooth/module-bluez5-discover.c
+@@ -37,16 +37,23 @@ PA_MODULE_DESCRIPTION("Detect available BlueZ 5 Bluetooth audio devices and load
+ PA_MODULE_VERSION(PACKAGE_VERSION);
+ PA_MODULE_LOAD_ONCE(true);
+ PA_MODULE_USAGE(
+-    "headset=ofono|native|auto"
++    "headset=ofono|native|auto|both "
++    "profile=<a2dp|hsp|hfgw> "
++    "sco_sink=<name of sink> "
++    "sco_source=<name of source> "
+ );
+ 
+ static const char* const valid_modargs[] = {
+     "headset",
++    "profile",
++    "sco_sink",
++    "sco_source",
+     NULL
+ };
+ 
+ struct userdata {
+     pa_module *module;
++    pa_modargs *modargs;
+     pa_core *core;
+     pa_hashmap *loaded_device_paths;
+     pa_hook_slot *device_connection_changed_slot;
+@@ -73,6 +80,26 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y,
+         pa_module *m;
+         char *args = pa_sprintf_malloc("path=%s", d->path);
+ 
++        if (pa_modargs_get_value(u->modargs, "profile", NULL)) {
++            char *profile;
++
++            profile = pa_sprintf_malloc("%s profile=\"%s\"", args,
++                                    pa_modargs_get_value(u->modargs, "profile", NULL));
++            pa_xfree(args);
++            args = profile;
++        }
++
++        if (pa_modargs_get_value(u->modargs, "sco_sink", NULL) &&
++            pa_modargs_get_value(u->modargs, "sco_source", NULL)) {
++            char *tmp;
++
++            tmp = pa_sprintf_malloc("%s sco_sink=\"%s\" sco_source=\"%s\"", args,
++                                    pa_modargs_get_value(u->modargs, "sco_sink", NULL),
++                                    pa_modargs_get_value(u->modargs, "sco_source", NULL));
++            pa_xfree(args);
++            args = tmp;
++        }
++
+         pa_log_debug("Loading module-bluez5-device %s", args);
+         m = pa_module_load(u->module->core, "module-bluez5-device", args);
+         pa_xfree(args);
+@@ -91,7 +118,11 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y,
+ }
+ 
+ #ifdef HAVE_BLUEZ_5_NATIVE_HEADSET
++#ifdef HAVE_BLUEZ_5_OFONO_HEADSET
++const char *default_headset_backend = "both";
++#else
+ const char *default_headset_backend = "native";
++#endif
+ #else
+ const char *default_headset_backend = "ofono";
+ #endif
+@@ -116,13 +147,16 @@ int pa__init(pa_module *m) {
+         headset_backend = HEADSET_BACKEND_NATIVE;
+     else if (pa_streq(headset_str, "auto"))
+         headset_backend = HEADSET_BACKEND_AUTO;
++    else if (pa_streq(headset_str, "both"))
++        headset_backend = HEADSET_BACKEND_BOTH;
+     else {
+-        pa_log("headset parameter must be either ofono, native or auto (found %s)", headset_str);
++        pa_log("headset parameter must be either ofono, native, auto or both (found %s)", headset_str);
+         goto fail;
+     }
+ 
+     m->userdata = u = pa_xnew0(struct userdata, 1);
+     u->module = m;
++    u->modargs = ma;
+     u->core = m->core;
+     u->loaded_device_paths = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
+ 
+@@ -133,7 +167,6 @@ int pa__init(pa_module *m) {
+         pa_hook_connect(pa_bluetooth_discovery_hook(u->discovery, PA_BLUETOOTH_HOOK_DEVICE_CONNECTION_CHANGED),
+                         PA_HOOK_NORMAL, (pa_hook_cb_t) device_connection_changed_cb, u);
+ 
+-    pa_modargs_free(ma);
+     return 0;
+ 
+ fail:
+@@ -159,5 +192,8 @@ void pa__done(pa_module *m) {
+     if (u->loaded_device_paths)
+         pa_hashmap_free(u->loaded_device_paths);
+ 
++    if (u->modargs)
++        pa_modargs_free(u->modargs);
++
+     pa_xfree(u);
+ }
+-- 
+2.5.0
+

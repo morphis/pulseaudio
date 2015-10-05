@@ -915,9 +915,7 @@ static void get_managed_objects_reply(DBusPendingCall *pending, void *userdata) 
 
     if (!y->ofono_backend && y->headset_backend != HEADSET_BACKEND_NATIVE)
         y->ofono_backend = pa_bluetooth_ofono_backend_new(y->core, y);
-    if (!y->ofono_backend && !y->native_backend && y->headset_backend != HEADSET_BACKEND_BOTH)
-        y->native_backend = pa_bluetooth_native_backend_new(y->core, y);
-    else if (!y->ofono_backend && !y->native_backend)
+    if (!y->ofono_backend && !y->native_backend && y->headset_backend != HEADSET_BACKEND_OFONO)
         y->native_backend = pa_bluetooth_native_backend_new(y->core, y);
 
 finish:
@@ -1155,20 +1153,6 @@ const char *pa_bluetooth_profile_to_string(pa_bluetooth_profile_t profile) {
             return "headset_audio_gateway";
         case PA_BLUETOOTH_PROFILE_OFF:
             return "off";
-    }
-
-    return NULL;
-}
-
-const char *pa_bluetooth_transport_state_to_string(pa_bluetooth_transport_state_t state)
-{
-    switch (state) {
-        case PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED:
-            return "disconnected";
-        case PA_BLUETOOTH_TRANSPORT_STATE_IDLE:
-            return "idle";
-        case PA_BLUETOOTH_TRANSPORT_STATE_PLAYING:
-            return "playing";
     }
 
     return NULL;

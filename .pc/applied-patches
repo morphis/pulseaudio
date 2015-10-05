@@ -13,6 +13,7 @@
 0209-module-switch-on-connect-adding-parameter-to-allow-s.patch
 0210-module-device-restore-adding-property-to-skip.patch
 0211-corking-a-sink-input-stream-when-stalled.patch
+0212-Add-support-for-HFP-with-BlueZ-5.x.patch
 0300-lfe-filter-Import-code-from-the-Chrome-OS-audio-serv.patch
 0301-lfe-filter-Enable-LFE-filter-in-the-resampler.patch
 0302-lfe-filter-Cleanup-and-refactor.patch
