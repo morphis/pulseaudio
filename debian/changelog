@@ -1,3 +1,14 @@
+pulseaudio (1:6.0-0ubuntu9.4) vivid; urgency=medium
+
+  * debian/patches/0212-Add-support-for-HFP-with-BlueZ-5.x.patch
+    Add support for HFP profile with BlueZ 5.x and setup audio
+    routing properly
+  * debian/patches/0312-lfe-filter-test-Use-S16NE-format.patch
+    Import patch from wily to get us building on big endian
+    architectures (powerpc) again
+
+ -- Simon Fels <simon.fels@canonical.com>  Mon, 05 Oct 2015 09:38:36 +0200
+
 pulseaudio (1:6.0-0ubuntu9.3) vivid; urgency=medium
 
   * debian/rules: don't disable bluez5 support
