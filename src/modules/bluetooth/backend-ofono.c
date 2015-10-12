@@ -198,6 +198,10 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
         err = socket_accept(card->fd);
         if (err < 0) {
             pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
+
+            close(card->fd);
+            card->fd = -1;
+
             return -1;
         }
 
@@ -219,6 +223,8 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
     err = socket_accept(card->fd);
     if (err < 0) {
         pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
+        close(card->fd);
+        card->fd = -1;
         return -1;
     }
 
