@@ -1686,9 +1686,6 @@ static int sco_over_pcm_state_update(struct userdata *u, bool changed)
             return -1;
         }
 
-        if (transport_acquire(u, false) < 0)
-            return -1;
-
         setup_stream(u);
 
         return 0;
