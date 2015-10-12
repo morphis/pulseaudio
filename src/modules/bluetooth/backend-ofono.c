@@ -236,7 +236,7 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
 
     pa_assert(card);
 
-    pa_log_debug("Release transport for card %s (fd %u)",
+    pa_log_debug("Trying to release transport for card %s (fd %d)",
                  card->path, card->fd);
 
     if (t->state <= PA_BLUETOOTH_TRANSPORT_STATE_IDLE) {
@@ -245,6 +245,9 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
     }
 
     if (card->fd > 0) {
+        pa_log_debug("Transport available for card %s (fd %d), releasing now",
+                 card->path, card->fd);
+
         /* shutdown to make sure connection is dropped immediately */
         shutdown(card->fd, SHUT_RDWR);
         close(card->fd);
