@@ -152,6 +152,7 @@ static int socket_accept(int sock)
 
 static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool optional, size_t *imtu, size_t *omtu) {
     struct hf_audio_card *card = t->userdata;
+    struct linger l;
     int err;
 
     pa_assert(card);
@@ -204,6 +205,17 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
 
             return -1;
         }
+
+        /* Set SO_LINGER in order to make sure the file descriptor is
+         * closed directly and not some time after we called close on
+         * it. This is necessary in order to keep control over the
+         * point where we can setup the next audio connection to the
+         * remote device. */
+        l.l_onoff = 1;
+        l.l_linger = 1;
+        err = setsockopt(card->fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+        if (err < 0)
+            pa_log_error("Failed to set SO_LINGER for card %s fd %d", card->path, card->fd);
 
         return card->fd;
     }
