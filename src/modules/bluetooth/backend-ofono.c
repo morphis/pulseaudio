@@ -252,6 +252,10 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
         shutdown(card->fd, SHUT_RDWR);
         close(card->fd);
         card->fd = -1;
+
+        pa_log_debug("Successfully released transport for card %s", card->path);
+
+        pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
     }
 }
 
