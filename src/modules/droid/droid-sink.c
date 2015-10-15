@@ -178,6 +178,8 @@ static void set_fake_sco_sink_transport_property(struct userdata *u, const char 
     pa_assert(value);
     pa_assert(u->sco_fake_sink);
 
+    pa_log_debug("Setting SCO sink suspend property to %s", value);
+
     pl = pa_proplist_new();
     pa_proplist_sets(pl, HSP_PREVENT_SUSPEND_STR, value);
     pa_sink_update_proplist(u->sco_fake_sink, PA_UPDATE_REPLACE, pl);
