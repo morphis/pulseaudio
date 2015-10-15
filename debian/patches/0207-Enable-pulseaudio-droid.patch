@@ -1,7 +1,7 @@
-Index: pulseaudio/configure.ac
+Index: pulseaudio-6.0/configure.ac
 ===================================================================
---- pulseaudio.orig/configure.ac
-+++ pulseaudio/configure.ac
+--- pulseaudio-6.0.orig/configure.ac
++++ pulseaudio-6.0/configure.ac
 @@ -807,6 +807,21 @@ AM_CONDITIONAL([HAVE_ALSA], [test "x$HAV
  AS_IF([test "x$HAVE_ALSA" = "x1"], AC_DEFINE([HAVE_ALSA], 1, [Have ALSA?]))
  AS_IF([test "x$HAVE_ALSA_UCM" = "x1"], AC_DEFINE([HAVE_ALSA_UCM], 1, [Have ALSA UCM?]))
@@ -40,10 +40,10 @@ Index: pulseaudio/configure.ac
      Enable CoreAudio:              ${ENABLE_COREAUDIO}
      Enable Solaris:                ${ENABLE_SOLARIS}
      Enable WaveOut:                ${ENABLE_WAVEOUT}
-Index: pulseaudio/src/Makefile.am
+Index: pulseaudio-6.0/src/Makefile.am
 ===================================================================
---- pulseaudio.orig/src/Makefile.am
-+++ pulseaudio/src/Makefile.am
+--- pulseaudio-6.0.orig/src/Makefile.am
++++ pulseaudio-6.0/src/Makefile.am
 @@ -1251,6 +1251,16 @@ modlibexec_LTLIBRARIES += \
  		module-alsa-source.la \
  		module-alsa-card.la
@@ -120,10 +120,10 @@ Index: pulseaudio/src/Makefile.am
  module_alsa_sink_la_SOURCES = modules/alsa/module-alsa-sink.c
  module_alsa_sink_la_LDFLAGS = $(MODULE_LDFLAGS)
  module_alsa_sink_la_LIBADD = $(MODULE_LIBADD) $(ASOUNDLIB_LIBS) libalsa-util.la
-Index: pulseaudio/src/modules/droid/droid-extcon.c
+Index: pulseaudio-6.0/src/modules/droid/droid-extcon.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-extcon.c
++++ pulseaudio-6.0/src/modules/droid/droid-extcon.c
 @@ -0,0 +1,269 @@
 +/***
 +  This file is part of PulseAudio.
@@ -394,10 +394,10 @@ Index: pulseaudio/src/modules/droid/droid-extcon.c
 +
 +    pa_xfree(u);
 +}
-Index: pulseaudio/src/modules/droid/droid-extcon.h
+Index: pulseaudio-6.0/src/modules/droid/droid-extcon.h
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-extcon.h
++++ pulseaudio-6.0/src/modules/droid/droid-extcon.h
 @@ -0,0 +1,32 @@
 +#ifndef foodroidextconhfoo
 +#define foodroidextconhfoo
@@ -431,11 +431,11 @@ Index: pulseaudio/src/modules/droid/droid-extcon.h
 +void pa_droid_extcon_free(pa_droid_extcon *);
 +
 +#endif
-Index: pulseaudio/src/modules/droid/droid-sink.c
+Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-sink.c
-@@ -0,0 +1,1394 @@
++++ pulseaudio-6.0/src/modules/droid/droid-sink.c
+@@ -0,0 +1,1396 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + * Copyright (C) 2010 Nokia Corporation.
@@ -615,6 +615,8 @@ Index: pulseaudio/src/modules/droid/droid-sink.c
 +    pa_assert(u);
 +    pa_assert(value);
 +    pa_assert(u->sco_fake_sink);
++
++    pa_log_debug("Setting SCO sink suspend property to %s", value);
 +
 +    pl = pa_proplist_new();
 +    pa_proplist_sets(pl, HSP_PREVENT_SUSPEND_STR, value);
@@ -1830,10 +1832,10 @@ Index: pulseaudio/src/modules/droid/droid-sink.c
 +
 +    pa_xfree(u);
 +}
-Index: pulseaudio/src/modules/droid/droid-sink.h
+Index: pulseaudio-6.0/src/modules/droid/droid-sink.h
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-sink.h
++++ pulseaudio-6.0/src/modules/droid/droid-sink.h
 @@ -0,0 +1,57 @@
 +#ifndef foodroidsinkfoo
 +#define foodroidsinkfoo
@@ -1892,10 +1894,10 @@ Index: pulseaudio/src/modules/droid/droid-sink.h
 +void pa_droid_sink_set_voice_control(pa_sink* sink, bool enable);
 +
 +#endif
-Index: pulseaudio/src/modules/droid/droid-source.c
+Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-source.c
++++ pulseaudio-6.0/src/modules/droid/droid-source.c
 @@ -0,0 +1,667 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -2564,10 +2566,10 @@ Index: pulseaudio/src/modules/droid/droid-source.c
 +
 +    pa_xfree(u);
 +}
-Index: pulseaudio/src/modules/droid/droid-source.h
+Index: pulseaudio-6.0/src/modules/droid/droid-source.h
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-source.h
++++ pulseaudio-6.0/src/modules/droid/droid-source.h
 @@ -0,0 +1,56 @@
 +#ifndef foodroidsourcefoo
 +#define foodroidsourcefoo
@@ -2625,10 +2627,10 @@ Index: pulseaudio/src/modules/droid/droid-source.h
 +void pa_droid_source_set_routing(pa_source *s, bool enabled);
 +
 +#endif
-Index: pulseaudio/src/modules/droid/droid-util-41qc.h
+Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-util-41qc.h
++++ pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 @@ -0,0 +1,274 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -2904,10 +2906,10 @@ Index: pulseaudio/src/modules/droid/droid-util-41qc.h
 +#undef STRING_ENTRY
 +
 +#endif
-Index: pulseaudio/src/modules/droid/droid-util-42.h
+Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-util-42.h
++++ pulseaudio-6.0/src/modules/droid/droid-util-42.h
 @@ -0,0 +1,286 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -3195,10 +3197,10 @@ Index: pulseaudio/src/modules/droid/droid-util-42.h
 +
 +
 +#endif
-Index: pulseaudio/src/modules/droid/droid-util.c
+Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-util.c
++++ pulseaudio-6.0/src/modules/droid/droid-util.c
 @@ -0,0 +1,1189 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -4389,10 +4391,10 @@ Index: pulseaudio/src/modules/droid/droid-util.c
 +
 +    pa_mutex_unlock(hw->hw_mutex);
 +}
-Index: pulseaudio/src/modules/droid/droid-util.h
+Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/droid-util.h
++++ pulseaudio-6.0/src/modules/droid/droid-util.h
 @@ -0,0 +1,256 @@
 +#ifndef foodroidutilfoo
 +#define foodroidutilfoo
@@ -4650,10 +4652,10 @@ Index: pulseaudio/src/modules/droid/droid-util.h
 +bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 +
 +#endif
-Index: pulseaudio/src/modules/droid/module-droid-card.c
+Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/module-droid-card.c
++++ pulseaudio-6.0/src/modules/droid/module-droid-card.c
 @@ -0,0 +1,636 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -5291,10 +5293,10 @@ Index: pulseaudio/src/modules/droid/module-droid-card.c
 +        pa_xfree(u);
 +    }
 +}
-Index: pulseaudio/src/modules/droid/module-droid-sink.c
+Index: pulseaudio-6.0/src/modules/droid/module-droid-sink.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/module-droid-sink.c
++++ pulseaudio-6.0/src/modules/droid/module-droid-sink.c
 @@ -0,0 +1,103 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -5399,10 +5401,10 @@ Index: pulseaudio/src/modules/droid/module-droid-sink.c
 +
 +    return -1;
 +}
-Index: pulseaudio/src/modules/droid/module-droid-source.c
+Index: pulseaudio-6.0/src/modules/droid/module-droid-source.c
 ===================================================================
 --- /dev/null
-+++ pulseaudio/src/modules/droid/module-droid-source.c
++++ pulseaudio-6.0/src/modules/droid/module-droid-source.c
 @@ -0,0 +1,95 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
@@ -5499,10 +5501,10 @@ Index: pulseaudio/src/modules/droid/module-droid-source.c
 +
 +    return -1;
 +}
-Index: pulseaudio/po/POTFILES.in
+Index: pulseaudio-6.0/po/POTFILES.in
 ===================================================================
---- pulseaudio.orig/po/POTFILES.in
-+++ pulseaudio/po/POTFILES.in
+--- pulseaudio-6.0.orig/po/POTFILES.in
++++ pulseaudio-6.0/po/POTFILES.in
 @@ -16,6 +16,7 @@ src/modules/alsa/module-alsa-sink.c
  src/modules/alsa/module-alsa-source.c
  src/modules/bluetooth/module-bluez4-device.c

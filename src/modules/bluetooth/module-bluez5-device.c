@@ -1070,7 +1070,7 @@ static int check_proplist(struct userdata *u) {
 
     u->prevent_suspend_transport = ret == 1;
 
-    pa_log_debug("Set %s %s", HSP_PREVENT_SUSPEND_STR, u->prevent_suspend_transport ? "true" : "false");
+    pa_log_debug("Set %s %s (ret %d)", HSP_PREVENT_SUSPEND_STR, u->prevent_suspend_transport ? "true" : "false", ret);
 
     return ret;
 }
@@ -1099,6 +1099,8 @@ static pa_hook_result_t update_allow_release_cb(pa_core *c, pa_sink *s, struct u
 
     if (!PA_SINK_IS_OPENED(pa_sink_get_state(u->hsp.sco_sink)) &&
         !PA_SOURCE_IS_OPENED(pa_source_get_state(u->hsp.sco_source))) {
+
+        pa_log_debug("Resuming SCO sink");
 
         /* Clear all suspend bits, effectively resuming SCO sink for a while. */
         pa_sink_suspend(s, false, PA_SUSPEND_ALL);
@@ -1670,8 +1672,9 @@ static int sco_over_pcm_state_update(struct userdata *u, bool changed)
     pa_assert(u);
     pa_assert(USE_SCO_OVER_PCM(u));
 
-    pa_log_debug("Updating SCO over PCM state (profile %s)",
-                 pa_bluetooth_profile_to_string(u->profile));
+    pa_log_debug("Updating SCO over PCM state (profile %s, changed %s, stream fd %d)",
+                 pa_bluetooth_profile_to_string(u->profile),
+                 changed ? "yes" : "no", u->stream_fd);
 
     if (PA_SINK_IS_OPENED(pa_sink_get_state(u->hsp.sco_sink)) ||
         PA_SOURCE_IS_OPENED(pa_source_get_state(u->hsp.sco_source))) {
@@ -1685,9 +1688,6 @@ static int sco_over_pcm_state_update(struct userdata *u, bool changed)
             pa_log("Can't resume SCO over PCM");
             return -1;
         }
-
-        if (transport_acquire(u, false) < 0)
-            return -1;
 
         setup_stream(u);
 
@@ -2246,7 +2246,6 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
     bool release = false;
     pa_card_profile *cp;
     pa_device_port *port;
-    pa_available_t oldavail;
 
     pa_assert(u);
     pa_assert(t);
@@ -2256,7 +2255,6 @@ static void handle_transport_state_change(struct userdata *u, struct pa_bluetoot
                  pa_bluetooth_profile_to_string(t->profile),
                  pa_bluetooth_transport_state_to_string(t->state));
 
-    oldavail = cp->available;
     pa_card_profile_set_available(cp, transport_state_to_availability(t->state));
 
     /* Update port availability */
@@ -2407,6 +2405,8 @@ static pa_hook_result_t sink_state_changed_cb(pa_core *c, pa_sink *s, struct use
     pa_sink_assert_ref(s);
     pa_assert(u);
 
+    pa_log_debug("Sink %s state has changed", s->name);
+
     if (!USE_SCO_OVER_PCM(u) || s != u->hsp.sco_sink)
         return PA_HOOK_OK;
 
@@ -2419,6 +2419,8 @@ static pa_hook_result_t source_state_changed_cb(pa_core *c, pa_source *s, struct
     pa_assert(c);
     pa_source_assert_ref(s);
     pa_assert(u);
+
+    pa_log_debug("Source %s state has changed", s->name);
 
     if (!USE_SCO_OVER_PCM(u) || s != u->hsp.sco_source)
         return PA_HOOK_OK;

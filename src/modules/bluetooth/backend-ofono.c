@@ -152,6 +152,7 @@ static int socket_accept(int sock)
 
 static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool optional, size_t *imtu, size_t *omtu) {
     struct hf_audio_card *card = t->userdata;
+    struct linger l;
     int err;
 
     pa_assert(card);
@@ -198,8 +199,23 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
         err = socket_accept(card->fd);
         if (err < 0) {
             pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
+
+            close(card->fd);
+            card->fd = -1;
+
             return -1;
         }
+
+        /* Set SO_LINGER in order to make sure the file descriptor is
+         * closed directly and not some time after we called close on
+         * it. This is necessary in order to keep control over the
+         * point where we can setup the next audio connection to the
+         * remote device. */
+        l.l_onoff = 1;
+        l.l_linger = 1;
+        err = setsockopt(card->fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
+        if (err < 0)
+            pa_log_error("Failed to set SO_LINGER for card %s fd %d", card->path, card->fd);
 
         return card->fd;
     }
@@ -219,6 +235,8 @@ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool opti
     err = socket_accept(card->fd);
     if (err < 0) {
         pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
+        close(card->fd);
+        card->fd = -1;
         return -1;
     }
 
@@ -230,7 +248,7 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
 
     pa_assert(card);
 
-    pa_log_debug("Release transport for card %s (fd %u)",
+    pa_log_debug("Trying to release transport for card %s (fd %d)",
                  card->path, card->fd);
 
     if (t->state <= PA_BLUETOOTH_TRANSPORT_STATE_IDLE) {
@@ -239,14 +257,18 @@ static void hf_audio_agent_transport_release(pa_bluetooth_transport *t) {
     }
 
     if (card->fd > 0) {
+        pa_log_debug("Transport available for card %s (fd %d), releasing now",
+                 card->path, card->fd);
+
         /* shutdown to make sure connection is dropped immediately */
         shutdown(card->fd, SHUT_RDWR);
         close(card->fd);
         card->fd = -1;
-    }
 
-    /* in any case switch the transport to idle */
-    pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
+        pa_log_debug("Successfully released transport for card %s", card->path);
+
+        pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
+    }
 }
 
 static void set_property(pa_dbus_connection *conn, const char *bus, const char *path, const char *interface,

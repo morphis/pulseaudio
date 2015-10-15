@@ -32,7 +32,13 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
  
  #define HF_AUDIO_AGENT_PATH "/HandsfreeAudioAgent"
  
-@@ -156,12 +157,51 @@ static int hf_audio_agent_transport_acqu
+@@ -151,17 +152,72 @@ static int socket_accept(int sock)
+ 
+ static int hf_audio_agent_transport_acquire(pa_bluetooth_transport *t, bool optional, size_t *imtu, size_t *omtu) {
+     struct hf_audio_card *card = t->userdata;
++    struct linger l;
+     int err;
+ 
      pa_assert(card);
  
      if (!optional) {
@@ -80,18 +86,42 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
 +        err = socket_accept(card->fd);
 +        if (err < 0) {
 +            pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
++
++            close(card->fd);
++            card->fd = -1;
++
 +            return -1;
 +        }
++
++        /* Set SO_LINGER in order to make sure the file descriptor is
++         * closed directly and not some time after we called close on
++         * it. This is necessary in order to keep control over the
++         * point where we can setup the next audio connection to the
++         * remote device. */
++        l.l_onoff = 1;
++        l.l_linger = 1;
++        err = setsockopt(card->fd, SOL_SOCKET, SO_LINGER, &l, sizeof(l));
++        if (err < 0)
++            pa_log_error("Failed to set SO_LINGER for card %s fd %d", card->path, card->fd);
 +
 +        return card->fd;
      }
  
      /* The correct block size should take into account the SCO MTU from
-@@ -190,18 +230,69 @@ static void hf_audio_agent_transport_rel
+@@ -179,6 +235,8 @@ static int hf_audio_agent_transport_acqu
+     err = socket_accept(card->fd);
+     if (err < 0) {
+         pa_log_error("Deferred setup failed on fd %d: %s", card->fd, pa_cstrerror(-err));
++        close(card->fd);
++        card->fd = -1;
+         return -1;
+     }
+ 
+@@ -190,18 +248,73 @@ static void hf_audio_agent_transport_rel
  
      pa_assert(card);
  
-+    pa_log_debug("Release transport for card %s (fd %u)",
++    pa_log_debug("Trying to release transport for card %s (fd %d)",
 +                 card->path, card->fd);
 +
      if (t->state <= PA_BLUETOOTH_TRANSPORT_STATE_IDLE) {
@@ -102,18 +132,22 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
 -    if (card->fd < 0)
 -        return;
 +    if (card->fd > 0) {
-+        /* shutdown to make sure connection is dropped immediately */
-+        shutdown(card->fd, SHUT_RDWR);
-+        close(card->fd);
-+        card->fd = -1;
-+    }
++        pa_log_debug("Transport available for card %s (fd %d), releasing now",
++                 card->path, card->fd);
  
 -    /* shutdown to make sure connection is dropped immediately */
 -    shutdown(card->fd, SHUT_RDWR);
 -    close(card->fd);
 -    card->fd = -1;
-+    /* in any case switch the transport to idle */
-+    pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
++        /* shutdown to make sure connection is dropped immediately */
++        shutdown(card->fd, SHUT_RDWR);
++        close(card->fd);
++        card->fd = -1;
++
++        pa_log_debug("Successfully released transport for card %s", card->path);
++
++        pa_bluetooth_transport_set_state(t, PA_BLUETOOTH_TRANSPORT_STATE_IDLE);
++    }
 +}
 +
 +static void set_property(pa_dbus_connection *conn, const char *bus, const char *path, const char *interface,
@@ -163,7 +197,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
  }
  
  static void hf_audio_agent_card_found(pa_bluetooth_backend *backend, const char *path, DBusMessageIter *props_i) {
-@@ -209,6 +300,7 @@ static void hf_audio_agent_card_found(pa
+@@ -209,6 +322,7 @@ static void hf_audio_agent_card_found(pa
      const char *key, *value;
      struct hf_audio_card *card;
      pa_bluetooth_device *d;
@@ -171,7 +205,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
  
      pa_assert(backend);
      pa_assert(path);
-@@ -227,22 +319,29 @@ static void hf_audio_agent_card_found(pa
+@@ -227,22 +341,29 @@ static void hf_audio_agent_card_found(pa
          dbus_message_iter_next(&i);
          dbus_message_iter_recurse(&i, &value_i);
  
@@ -214,7 +248,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
  
          dbus_message_iter_next(props_i);
      }
-@@ -253,9 +352,11 @@ static void hf_audio_agent_card_found(pa
+@@ -253,9 +374,11 @@ static void hf_audio_agent_card_found(pa
          goto fail;
      }
  
@@ -227,7 +261,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/backend-ofono.c
      card->transport->userdata = card;
  
      pa_bluetooth_transport_put(card->transport);
-@@ -529,12 +630,25 @@ static DBusMessage *hf_audio_agent_new_c
+@@ -529,12 +652,25 @@ static DBusMessage *hf_audio_agent_new_c
  
      card = pa_hashmap_get(backend->cards, path);
  
@@ -472,7 +506,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
  static void setup_stream(struct userdata *u) {
      struct pollfd *pollfd;
      int one;
-@@ -943,49 +997,116 @@ static int add_source(struct userdata *u
+@@ -943,49 +997,118 @@ static int add_source(struct userdata *u
  
      pa_assert(u->transport);
  
@@ -580,7 +614,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
 +
 +    u->prevent_suspend_transport = ret == 1;
 +
-+    pa_log_debug("Set %s %s", HSP_PREVENT_SUSPEND_STR, u->prevent_suspend_transport ? "true" : "false");
++    pa_log_debug("Set %s %s (ret %d)", HSP_PREVENT_SUSPEND_STR, u->prevent_suspend_transport ? "true" : "false", ret);
 +
 +    return ret;
 +}
@@ -610,6 +644,8 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
 +    if (!PA_SINK_IS_OPENED(pa_sink_get_state(u->hsp.sco_sink)) &&
 +        !PA_SOURCE_IS_OPENED(pa_source_get_state(u->hsp.sco_source))) {
 +
++        pa_log_debug("Resuming SCO sink");
++
 +        /* Clear all suspend bits, effectively resuming SCO sink for a while. */
 +        pa_sink_suspend(s, false, PA_SUSPEND_ALL);
 +    }
@@ -620,7 +656,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
  /* Run from IO thread */
  static int sink_process_msg(pa_msgobject *o, int code, void *data, int64_t offset, pa_memchunk *chunk) {
      struct userdata *u = PA_SINK(o)->userdata;
-@@ -1100,52 +1221,67 @@ static int add_sink(struct userdata *u)
+@@ -1100,52 +1223,67 @@ static int add_sink(struct userdata *u)
  
      pa_assert(u->transport);
  
@@ -719,7 +755,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
          u->sample_spec.format = PA_SAMPLE_S16LE;
          u->sample_spec.channels = 1;
-@@ -1264,11 +1400,18 @@ static int setup_transport(struct userda
+@@ -1264,11 +1402,18 @@ static int setup_transport(struct userda
      pa_bluetooth_transport *t;
  
      pa_assert(u);
@@ -739,7 +775,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      if (!t || t->state <= PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED) {
          pa_log_warn("Profile has no transport");
          return -1;
-@@ -1305,11 +1448,16 @@ static int init_profile(struct userdata
+@@ -1305,11 +1450,16 @@ static int init_profile(struct userdata
      pa_assert(u);
      pa_assert(u->profile != PA_BLUETOOTH_PROFILE_OFF);
  
@@ -756,7 +792,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      if (get_profile_direction (u->profile) & PA_DIRECTION_OUTPUT)
          if (add_sink(u) < 0)
              r = -1;
-@@ -1517,6 +1665,65 @@ finish:
+@@ -1517,6 +1667,63 @@ finish:
      pa_log_debug("IO thread shutting down");
  }
  
@@ -765,8 +801,9 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
 +    pa_assert(u);
 +    pa_assert(USE_SCO_OVER_PCM(u));
 +
-+    pa_log_debug("Updating SCO over PCM state (profile %s)",
-+                 pa_bluetooth_profile_to_string(u->profile));
++    pa_log_debug("Updating SCO over PCM state (profile %s, changed %s, stream fd %d)",
++                 pa_bluetooth_profile_to_string(u->profile),
++                 changed ? "yes" : "no", u->stream_fd);
 +
 +    if (PA_SINK_IS_OPENED(pa_sink_get_state(u->hsp.sco_sink)) ||
 +        PA_SOURCE_IS_OPENED(pa_source_get_state(u->hsp.sco_source))) {
@@ -780,9 +817,6 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
 +            pa_log("Can't resume SCO over PCM");
 +            return -1;
 +        }
-+
-+        if (transport_acquire(u, false) < 0)
-+            return -1;
 +
 +        setup_stream(u);
 +
@@ -966,18 +1000,25 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      return 0;
  }
  
-@@ -1972,6 +2252,10 @@ static void handle_transport_state_chang
+@@ -1966,13 +2246,15 @@ static void handle_transport_state_chang
+     bool release = false;
+     pa_card_profile *cp;
+     pa_device_port *port;
+-    pa_available_t oldavail;
+ 
+     pa_assert(u);
      pa_assert(t);
      pa_assert_se(cp = pa_hashmap_get(u->card->profiles, pa_bluetooth_profile_to_string(t->profile)));
  
+-    oldavail = cp->available;
 +    pa_log_debug("State of transport for profile %s changed to %s",
 +                 pa_bluetooth_profile_to_string(t->profile),
 +                 pa_bluetooth_transport_state_to_string(t->state));
 +
-     oldavail = cp->available;
      pa_card_profile_set_available(cp, transport_state_to_availability(t->state));
  
-@@ -1983,9 +2267,13 @@ static void handle_transport_state_chang
+     /* Update port availability */
+@@ -1983,9 +2265,13 @@ static void handle_transport_state_chang
  
      /* Acquire or release transport as needed */
      acquire = (t->state == PA_BLUETOOTH_TRANSPORT_STATE_PLAYING && u->profile == t->profile);
@@ -992,7 +1033,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
          if (u->source) {
              pa_log_debug("Resuming source %s because its transport state changed to playing", u->source->name);
  
-@@ -2013,6 +2301,9 @@ static void handle_transport_state_chang
+@@ -2013,6 +2299,9 @@ static void handle_transport_state_chang
           * BlueZ should probably release the transport automatically, and in
           * that case we would just mark the transport as released */
  
@@ -1002,7 +1043,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
          /* Remote side closed the stream so we consider it PA_SUSPEND_USER */
          if (u->source) {
              pa_log_debug("Suspending source %s because the remote end closed the stream", u->source->name);
-@@ -2045,12 +2336,21 @@ static pa_hook_result_t transport_state_
+@@ -2045,12 +2334,21 @@ static pa_hook_result_t transport_state_
      pa_assert(t);
      pa_assert(u);
  
@@ -1024,7 +1065,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      return PA_HOOK_OK;
  }
  
-@@ -2102,6 +2402,32 @@ static pa_hook_result_t transport_microp
+@@ -2102,6 +2400,36 @@ static pa_hook_result_t transport_microp
      return PA_HOOK_OK;
  }
  
@@ -1032,6 +1073,8 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
 +    pa_assert(c);
 +    pa_sink_assert_ref(s);
 +    pa_assert(u);
++
++    pa_log_debug("Sink %s state has changed", s->name);
 +
 +    if (!USE_SCO_OVER_PCM(u) || s != u->hsp.sco_sink)
 +        return PA_HOOK_OK;
@@ -1046,6 +1089,8 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
 +    pa_source_assert_ref(s);
 +    pa_assert(u);
 +
++    pa_log_debug("Source %s state has changed", s->name);
++
 +    if (!USE_SCO_OVER_PCM(u) || s != u->hsp.sco_source)
 +        return PA_HOOK_OK;
 +
@@ -1057,7 +1102,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
  /* Run from main thread context */
  static int device_process_msg(pa_msgobject *obj, int code, void *data, int64_t offset, pa_memchunk *chunk) {
      struct bluetooth_msg *m = BLUETOOTH_MSG(obj);
-@@ -2144,6 +2470,18 @@ int pa__init(pa_module* m) {
+@@ -2144,6 +2472,18 @@ int pa__init(pa_module* m) {
          goto fail;
      }
  
@@ -1076,7 +1121,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      if ((u->discovery = pa_shared_get(u->core, "bluetooth-discovery")))
          pa_bluetooth_discovery_ref(u->discovery);
      else {
-@@ -2156,7 +2494,7 @@ int pa__init(pa_module* m) {
+@@ -2156,7 +2496,7 @@ int pa__init(pa_module* m) {
          goto fail;
      }
  
@@ -1085,7 +1130,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
  
      u->device_connection_changed_slot =
          pa_hook_connect(pa_bluetooth_discovery_hook(u->discovery, PA_BLUETOOTH_HOOK_DEVICE_CONNECTION_CHANGED),
-@@ -2172,6 +2510,17 @@ int pa__init(pa_module* m) {
+@@ -2172,6 +2512,17 @@ int pa__init(pa_module* m) {
      u->transport_microphone_gain_changed_slot =
          pa_hook_connect(pa_bluetooth_discovery_hook(u->discovery, PA_BLUETOOTH_HOOK_TRANSPORT_MICROPHONE_GAIN_CHANGED), PA_HOOK_NORMAL, (pa_hook_cb_t) transport_microphone_gain_changed_cb, u);
  
@@ -1103,7 +1148,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
  
      if (add_card(u) < 0)
          goto fail;
-@@ -2231,12 +2580,24 @@ void pa__done(pa_module *m) {
+@@ -2231,12 +2582,24 @@ void pa__done(pa_module *m) {
      if (u->transport_microphone_gain_changed_slot)
          pa_hook_slot_free(u->transport_microphone_gain_changed_slot);
  
@@ -1128,7 +1173,7 @@ Index: pulseaudio-6.0/src/modules/bluetooth/module-bluez5-device.c
      if (u->msg)
          pa_xfree(u->msg);
  
-@@ -2249,6 +2610,12 @@ void pa__done(pa_module *m) {
+@@ -2249,6 +2612,12 @@ void pa__done(pa_module *m) {
      pa_xfree(u->output_port_name);
      pa_xfree(u->input_port_name);
  
