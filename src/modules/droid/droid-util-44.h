@@ -19,10 +19,22 @@
  * USA.
  */
 
-#ifndef _ANDROID_UTIL_V42_H_
-#define _ANDROID_UTIL_V42_H_
+#ifndef _ANDROID_UTIL_V44_H_
+#define _ANDROID_UTIL_V44_H_
 
 #define DROID_HAL 2
+
+// Android v4.4 has SPEAKER_DRC_ENABLED_TAG, so might the future versions
+#define DROID_HAVE_DRC
+
+// Until we implement MER_HA_CHIPSET in hw-release, every non-Qualcomm ARM
+// device will need to have an exception below (just like i9305).
+// This decision is based on the trend of Q3/Q4 2014 that most devices ported
+// to 4.4 via hybris are Qualcomm ones.
+// TODO: things elegantly
+#if defined(__arm__) && !defined(DROID_DEVICE_I9305)
+#define QCOM_HARDWARE
+#endif
 
 #include <hardware/audio.h>
 #include <hardware_legacy/audio_policy_conf.h>
@@ -78,6 +90,20 @@ uint32_t conversion_table_format[][2] = {
 };
 
 uint32_t conversion_table_default_audio_source[][2] = {
+#ifdef DROID_DEVICE_HAMMERHEAD
+    { AUDIO_DEVICE_IN_COMMUNICATION,                AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_AMBIENT,                      AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_BUILTIN_MIC,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,        AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_WIRED_HEADSET,                AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_AUX_DIGITAL,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_VOICE_CALL,                   AUDIO_SOURCE_VOICE_CALL },
+    { AUDIO_DEVICE_IN_BACK_MIC,                     AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_REMOTE_SUBMIX,                AUDIO_SOURCE_REMOTE_SUBMIX },
+    { AUDIO_DEVICE_IN_ANC_HEADSET,                  AUDIO_SOURCE_MIC },
+    { AUDIO_DEVICE_IN_FM_RX,                        AUDIO_SOURCE_FM_RX },
+    { AUDIO_DEVICE_IN_FM_RX_A2DP,                   AUDIO_SOURCE_FM_RX_A2DP },
+#endif
     { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
 };
 
@@ -113,6 +139,13 @@ struct string_conversion string_conversion_table_output_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_A2DP),
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_SCO),
     STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_USB),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_DEVICE_OUT_FM),
+    STRING_ENTRY(AUDIO_DEVICE_OUT_FM_TX),
+    STRING_ENTRY(AUDIO_DEVICE_OUT_ANC_HEADSET),
+    STRING_ENTRY(AUDIO_DEVICE_OUT_ANC_HEADPHONE),
+    STRING_ENTRY(AUDIO_DEVICE_OUT_PROXY),
+#endif
     { 0, NULL }
 };
 
@@ -135,38 +168,17 @@ struct string_conversion string_conversion_table_output_device_fancy[] = {
     { AUDIO_DEVICE_OUT_USB_ACCESSORY,               "output-usb_accessory" },
     { AUDIO_DEVICE_OUT_USB_DEVICE,                  "output-usb_device" },
     { AUDIO_DEVICE_OUT_REMOTE_SUBMIX,               "output-remote_submix" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_DEVICE_OUT_FM,                          "output-fm" },
+    { AUDIO_DEVICE_OUT_FM_TX,                       "output-fm_tx" },
+    { AUDIO_DEVICE_OUT_ANC_HEADSET,                 "output-anc_headset" },
+    { AUDIO_DEVICE_OUT_ANC_HEADPHONE,               "output-anc_headphone" },
+    { AUDIO_DEVICE_OUT_PROXY,                       "output-proxy" },
+#endif
     { 0, NULL }
 };
 
 /* Input devices */
-#ifdef DROID_DEVICE_MAKO
-struct string_conversion string_conversion_table_input_device[] = {
-    { 0x10000,      "AUDIO_DEVICE_IN_COMMUNICATION" },
-    { 0x20000,      "AUDIO_DEVICE_IN_AMBIENT" },
-    { 0x40000,      "AUDIO_DEVICE_IN_BUILTIN_MIC" },
-    { 0x80000,      "AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
-    { 0x100000,     "AUDIO_DEVICE_IN_WIRED_HEADSET" },
-    { 0x200000,     "AUDIO_DEVICE_IN_AUX_DIGITAL" },
-    { 0x400000,     "AUDIO_DEVICE_IN_VOICE_CALL" },
-    { 0x800000,     "AUDIO_DEVICE_IN_BACK_MIC" },
-    { 0x80000000,   "AUDIO_DEVICE_IN_DEFAULT" },
-    { 0x80000000,   "AUDIO_DEVICE_IN_REMOTE_SUBMIX" }, // What's this really??
-    { 0, NULL }
-};
-
-struct string_conversion string_conversion_table_input_device_fancy[] = {
-    { 0x10000,      "input-communication" },
-    { 0x20000,      "input-ambient" },
-    { 0x40000,      "input-builtin_mic" },
-    { 0x80000,      "input-bluetooth_sco_headset" },
-    { 0x100000,     "input-wired_headset" },
-    { 0x200000,     "input-aux_digital" },
-    { 0x400000,     "input-voice_call" },
-    { 0x800000,     "input-back_mic" },
-    { 0x80000000,   "input-remote_submix" },
-    { 0, NULL }
-};
-#else
 struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_COMMUNICATION),
     STRING_ENTRY(AUDIO_DEVICE_IN_AMBIENT),
@@ -181,6 +193,11 @@ struct string_conversion string_conversion_table_input_device[] = {
     STRING_ENTRY(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
     STRING_ENTRY(AUDIO_DEVICE_IN_USB_ACCESSORY),
     STRING_ENTRY(AUDIO_DEVICE_IN_USB_DEVICE),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_DEVICE_IN_ANC_HEADSET),
+    STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX),
+    STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX_A2DP),
+#endif
     { 0, NULL }
 };
 
@@ -194,9 +211,17 @@ struct string_conversion string_conversion_table_input_device_fancy[] = {
     { AUDIO_DEVICE_IN_VOICE_CALL,               "input-voice_call" },
     { AUDIO_DEVICE_IN_BACK_MIC,                 "input-back_mic" },
     { AUDIO_DEVICE_IN_REMOTE_SUBMIX,            "input-remote_submix" },
+    { AUDIO_DEVICE_IN_ANLG_DOCK_HEADSET,        "input-analog_dock_headset" },
+    { AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET,        "input-digital_dock_headset" },
+    { AUDIO_DEVICE_IN_USB_ACCESSORY,            "input-usb_accessory" },
+    { AUDIO_DEVICE_IN_USB_DEVICE,               "input-usb_device" },
+#ifdef QCOM_HARDWARE
+    { AUDIO_DEVICE_IN_ANC_HEADSET,              "input-anc_headset" },
+    { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
+    { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
+#endif
     { 0, NULL }
 };
-#endif
 
 struct string_conversion string_conversion_table_audio_source_fancy[] = {
     { AUDIO_SOURCE_DEFAULT,                         "default" },
@@ -222,6 +247,13 @@ struct string_conversion string_conversion_table_output_flag[] = {
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_FAST),
     STRING_ENTRY(AUDIO_OUTPUT_FLAG_DEEP_BUFFER),
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD),
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_NON_BLOCKING),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_LPA),
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_TUNNEL),
+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_VOIP_RX),
+#endif
     { 0, NULL }
 };
 
@@ -272,6 +304,12 @@ struct string_conversion string_conversion_table_input_channels[] = {
     STRING_ENTRY(AUDIO_CHANNEL_IN_MONO),
     STRING_ENTRY(AUDIO_CHANNEL_IN_STEREO),
     STRING_ENTRY(AUDIO_CHANNEL_IN_ALL),
+    STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT_BACK),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_CHANNEL_IN_VOICE_UPLINK_MONO),
+    STRING_ENTRY(AUDIO_CHANNEL_IN_VOICE_DNLINK_MONO),
+    STRING_ENTRY(AUDIO_CHANNEL_IN_VOICE_CALL_MONO),
+#endif
     { 0, NULL }
 };
 
@@ -288,6 +326,21 @@ struct string_conversion string_conversion_table_format[] = {
     STRING_ENTRY(AUDIO_FORMAT_VORBIS),
     STRING_ENTRY(AUDIO_FORMAT_MAIN_MASK),
     STRING_ENTRY(AUDIO_FORMAT_SUB_MASK),
+#ifdef QCOM_HARDWARE
+    STRING_ENTRY(AUDIO_FORMAT_EVRC),
+    STRING_ENTRY(AUDIO_FORMAT_QCELP),
+    STRING_ENTRY(AUDIO_FORMAT_AC3),
+    STRING_ENTRY(AUDIO_FORMAT_AC3_PLUS),
+    STRING_ENTRY(AUDIO_FORMAT_DTS),
+    STRING_ENTRY(AUDIO_FORMAT_WMA),
+    STRING_ENTRY(AUDIO_FORMAT_WMA_PRO),
+    STRING_ENTRY(AUDIO_FORMAT_AAC_ADIF),
+    STRING_ENTRY(AUDIO_FORMAT_EVRCB),
+    STRING_ENTRY(AUDIO_FORMAT_EVRCWB),
+    STRING_ENTRY(AUDIO_FORMAT_EAC3),
+    STRING_ENTRY(AUDIO_FORMAT_DTS_LBR),
+    STRING_ENTRY(AUDIO_FORMAT_AMR_WB_PLUS),
+#endif
     STRING_ENTRY(AUDIO_FORMAT_PCM_16_BIT),
     STRING_ENTRY(AUDIO_FORMAT_PCM_8_BIT),
     STRING_ENTRY(AUDIO_FORMAT_PCM_32_BIT),

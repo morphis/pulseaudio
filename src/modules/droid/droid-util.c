@@ -55,24 +55,7 @@
 #include <pulsecore/shared.h>
 #include <pulsecore/mutex.h>
 
-#include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
-
 #include "droid-util.h"
-
-#include <android-version.h>
-
-#ifndef ANDROID_VERSION_MAJOR
-#error "ANDROID_VERSION_* not defined."
-#endif
-
-#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
-#include "droid-util-41qc.h"
-#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR >= 2
-#include "droid-util-42.h"
-#else
-#error "No valid ANDROID_VERSION found."
-#endif
 
 #define CONVERT_FUNC(TABL) \
 bool pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {                    \
@@ -94,11 +77,14 @@ CONVERT_FUNC(input_channel);
 
 #define DEFAULT_PRIORITY (100)
 
+/* Section defining custom global configuration variables. */
+#define GLOBAL_CONFIG_EXT_TAG "custom_properties"
+
+static void droid_port_free(pa_droid_port *p);
+
 static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
     pa_assert(list);
     pa_assert(to_str);
-
-    pa_log_debug("Trying to convert %x to string.", value);
 
     for (unsigned int i = 0; list[i].str; i++) {
         if (list[i].value == value) {
@@ -114,8 +100,6 @@ static bool string_convert_str_to_num(const struct string_conversion *list, cons
     pa_assert(str);
     pa_assert(to_value);
 
-    pa_log_debug("Trying to convert %s to num.", str);
-
     for (unsigned int i = 0; list[i].str; i++) {
         if (pa_streq(list[i].str, str)) {
             *to_value = list[i].value;
@@ -125,31 +109,17 @@ static bool string_convert_str_to_num(const struct string_conversion *list, cons
     return false;
 }
 
-static bool check_port_availability(const char *port) {
-    pa_assert(port);
-
-    pa_log_debug("Checking availability for port '%s'", port);
-
-    for (unsigned int i = 0; port_availability[i]; i++) {
-        if (pa_streq(port_availability[i], port)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 static char *list_string(struct string_conversion *list, uint32_t flags) {
     char *str = NULL;
     char *tmp;
 
-#ifdef HAL_V2
+#if DROID_HAL >= 2
     if (flags & AUDIO_DEVICE_BIT_IN)
         flags &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
     for (unsigned int i = 0; list[i].str; i++) {
-#ifdef HAL_V2
+#if DROID_HAL >= 2
         if (list[i].value & AUDIO_DEVICE_BIT_IN) {
             if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
                 continue;
@@ -172,13 +142,6 @@ static char *list_string(struct string_conversion *list, uint32_t flags) {
     return str;
 }
 
-static void droid_port_free(pa_droid_port *p) {
-    pa_assert(p);
-
-    pa_xfree(p->name);
-    pa_xfree(p->description);
-    pa_xfree(p);
-}
 
 /* Output device */
 bool pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str) {
@@ -208,39 +171,67 @@ char *pa_list_string_input_device(audio_devices_t devices) {
 
 /* Flags */
 bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str) {
-    return string_convert_num_to_str(string_conversion_table_flag, (uint32_t) value, to_str);
+    return string_convert_num_to_str(string_conversion_table_output_flag, (uint32_t) value, to_str);
 }
 
 bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value) {
-    return string_convert_str_to_num(string_conversion_table_flag, str, (uint32_t*) to_value);
+    return string_convert_str_to_num(string_conversion_table_output_flag, str, (uint32_t*) to_value);
 }
 
 char *pa_list_string_flags(audio_output_flags_t flags) {
-    return list_string(string_conversion_table_flag, flags);
+    return list_string(string_conversion_table_output_flag, flags);
+}
+
+bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
+{
+#if DROID_HAL >= 2
+    input_device &= ~AUDIO_DEVICE_BIT_IN;
+#endif
+
+    /* Note converting HAL values to different HAL values! */
+    for (unsigned int i = 0; i < sizeof(conversion_table_default_audio_source) / (sizeof(uint32_t) * 2); i++) {
+        if (conversion_table_default_audio_source[i][0] & input_device) {
+            *default_source = conversion_table_default_audio_source[i][1];
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Config parser */
 
 #define WHITESPACE "\n\r \t"
 
-static int parse_list(const struct string_conversion *table, const char *str, uint32_t *dst) {
+static int parse_list(const struct string_conversion *table,
+                      const char *str,
+                      uint32_t *dst,
+                      char **unknown_entries) {
     int count = 0;
     char *entry;
+    char *unknown = NULL;
     const char *state = NULL;
 
     pa_assert(table);
     pa_assert(str);
     pa_assert(dst);
+    pa_assert(unknown_entries);
 
     *dst = 0;
+    *unknown_entries = NULL;
 
     while ((entry = pa_split(str, "|", &state))) {
         uint32_t d = 0;
 
         if (!string_convert_str_to_num(table, entry, &d)) {
-            pa_log("Unknown entry %s", entry);
-            pa_xfree(entry);
-            return -1;
+            if (*unknown_entries) {
+                unknown = pa_sprintf_malloc("%s|%s", *unknown_entries, entry);
+                pa_xfree(*unknown_entries);
+                pa_xfree(entry);
+            } else
+                unknown = entry;
+
+            *unknown_entries = unknown;
+            continue;
         }
 
         *dst |= d;
@@ -252,24 +243,34 @@ static int parse_list(const struct string_conversion *table, const char *str, ui
     return count;
 }
 
-static bool parse_sampling_rates(const char *str, uint32_t sampling_rates[32]) {
+static bool parse_sampling_rates(const char *fn, const unsigned ln,
+                                 const char *str, uint32_t sampling_rates[32]) {
+    pa_assert(fn);
+    pa_assert(str);
+
     char *entry;
     const char *state = NULL;
-
-    pa_assert(str);
 
     uint32_t pos = 0;
     while ((entry = pa_split(str, "|", &state))) {
         int32_t val;
 
+#if DROID_HAL >= 3
+        if (pos == 0 && pa_streq(entry, "dynamic")) {
+            sampling_rates[pos++] = (uint32_t) -1;
+            pa_xfree(entry);
+            break;
+        }
+#endif
+
         if (pos == AUDIO_MAX_SAMPLING_RATES) {
-            pa_log("Too many sample rate entries (> %d)", AUDIO_MAX_SAMPLING_RATES);
+            pa_log("[%s:%u] Too many sample rate entries (> %d)", fn, ln, AUDIO_MAX_SAMPLING_RATES);
             pa_xfree(entry);
             return false;
         }
 
         if (pa_atoi(entry, &val) < 0) {
-            pa_log("Bad sample rate value %s", entry);
+            pa_log("[%s:%u] Bad sample rate value %s", fn, ln, entry);
             pa_xfree(entry);
             return false;
         }
@@ -285,14 +286,58 @@ static bool parse_sampling_rates(const char *str, uint32_t sampling_rates[32]) {
     return true;
 }
 
-static bool parse_formats(const char *str, audio_format_t *formats) {
+static bool check_and_log(const char *fn, const unsigned ln, const char *field,
+                          const int count, const char *str, char *unknown,
+                          const bool must_have_all) {
+    bool fail;
+
+    pa_assert(fn);
+    pa_assert(field);
+    pa_assert(str);
+
+    fail = must_have_all && unknown;
+
+    if (unknown) {
+        pa_log_warn("[%s:%u] Unknown %s entries: %s", fn, ln, field, unknown);
+        pa_xfree(unknown);
+    }
+
+    if (count == 0 || fail) {
+        pa_log("[%s:%u] Failed to parse %s (%s).", fn, ln, field, str);
+        return false;
+    }
+
+    return true;
+}
+
+static bool parse_formats(const char *fn, const unsigned ln,
+                          const char *str, audio_format_t *formats) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
     pa_assert(str);
     pa_assert(formats);
 
-    return parse_list(string_conversion_table_format, str, formats) > 0;
+#if DROID_HAL >= 3
+    /* Needs to be probed later */
+    if (pa_streq(str, "dynamic")) {
+        *formats = 0;
+        return true;
+    }
+#endif
+
+    count = parse_list(string_conversion_table_format, str, formats, &unknown);
+
+    return check_and_log(fn, ln, "formats", count, str, unknown, false);
 }
 
-static int parse_channels(const char *str, bool in_output, audio_channel_mask_t *channels) {
+static int parse_channels(const char *fn, const unsigned ln,
+                          const char *str, bool in_output, audio_channel_mask_t *channels) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
     pa_assert(str);
     pa_assert(channels);
 
@@ -302,45 +347,79 @@ static int parse_channels(const char *str, bool in_output, audio_channel_mask_t 
         return true;
     }
 
-    if (in_output)
-        return parse_list(string_conversion_table_output_channels, str, channels);
-    else
-        return parse_list(string_conversion_table_input_channels, str, channels);
+    count = parse_list(in_output ? string_conversion_table_output_channels
+                                 : string_conversion_table_input_channels,
+                                 str, channels, &unknown);
+
+    return check_and_log(fn, ln, in_output ? "output channel_masks" : "input channel_masks",
+                         count, str, unknown, false);
 }
 
-static bool parse_devices(const char *str, bool in_output, audio_devices_t *devices) {
+static bool parse_devices(const char *fn, const unsigned ln,
+                          const char *str, bool in_output, audio_devices_t *devices, bool must_have_all) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
     pa_assert(str);
     pa_assert(devices);
 
-    if (in_output)
-        return parse_list(string_conversion_table_output_device, str, devices) > 0;
-    else
-        return parse_list(string_conversion_table_input_device, str, devices) > 0;
+    count = parse_list(in_output ? string_conversion_table_output_device
+                                 : string_conversion_table_input_device,
+                                 str, devices, &unknown);
+
+    return check_and_log(fn, ln, in_output ? "output devices" : "input devices",
+                         count, str, unknown, must_have_all);
 }
 
-static bool parse_flags(const char *str, audio_output_flags_t *flags) {
+static bool parse_output_flags(const char *fn, const unsigned ln,
+                        const char *str, audio_output_flags_t *flags) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
     pa_assert(str);
     pa_assert(flags);
 
-    return parse_list(string_conversion_table_flag, str, flags) > 0;
+    count = parse_list(string_conversion_table_output_flag, str, flags, &unknown);
+
+    return check_and_log(fn, ln, "flags", count, str, unknown, false);
 }
+
+#if DROID_HAL >= 3
+static bool parse_input_flags(const char *fn, const unsigned ln,
+                        const char *str, audio_input_flags_t *flags) {
+    int count;
+    char *unknown = NULL;
+
+    pa_assert(fn);
+    pa_assert(str);
+    pa_assert(flags);
+
+    count = parse_list(string_conversion_table_input_flag, str, flags, &unknown);
+
+    return check_and_log(fn, ln, "flags", count, str, unknown, false);
+}
+#endif
+
+#define MAX_LINE_LENGTH (1024)
 
 bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
     FILE *f;
-    int n = 0;
+    unsigned n = 0;
     bool ret = true;
+    char *full_line = NULL;
 
     enum config_loc {
-        IN_ROOT = 0,
-        IN_GLOBAL = 1,
-        IN_HW_MODULES = 1,
-        IN_MODULE = 2,
-        IN_OUTPUT_INPUT = 3,
-        IN_CONFIG = 4
+        IN_ROOT             = 0,
+        IN_GLOBAL           = 1,
+        IN_GLOBAL_EXT       = 2,
+        IN_HW_MODULES       = 3,
+        IN_MODULE           = 4,
+        IN_OUTPUT_INPUT     = 5,
+        IN_CONFIG           = 6
     } loc = IN_ROOT;
 
-
-    bool in_global = false;
     bool in_output = true;
 
     pa_droid_config_hw_module *module = NULL;
@@ -362,42 +441,61 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
 
     pa_lock_fd(fileno(f), 1);
 
-    while (!feof(f)) {
-        char ln[512];
-        char *d, *v, *val;
+    full_line = pa_xmalloc0(sizeof(char) * MAX_LINE_LENGTH);
 
-        if (!fgets(ln, sizeof(ln), f))
+    while (!feof(f)) {
+        char *ln, *d, *v, *value;
+
+        if (!fgets(full_line, MAX_LINE_LENGTH, f))
             break;
 
         n++;
 
-        pa_strip_nl(ln);
+        pa_strip_nl(full_line);
 
-        if (ln[0] == '#' || !*ln )
+        if (!*full_line)
             continue;
 
+        ln = full_line + strspn(full_line, WHITESPACE);
+
+        if (ln[0] == '#')
+            continue;
+
+        v = ln;
+        d = v + strcspn(v, WHITESPACE);
+
+        value = d + strspn(d, WHITESPACE);
+        d[0] = '\0';
+        d = value + strcspn(value, WHITESPACE);
+        d[0] = '\0';
+
         /* Enter section */
-        if (ln[strlen(ln)-1] == '{') {
-            d = ln+strspn(ln, WHITESPACE);
-            v = d;
-            d = v+strcspn(v, WHITESPACE);
-            d[0] = '\0';
+        if (pa_streq(value, "{")) {
 
             if (!*v) {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - too few words", filename, n);
+                pa_log("[%s:%u] failed to parse line - too few words", filename, n);
                 goto finish;
             }
 
             switch (loc) {
                 case IN_ROOT:
                     if (pa_streq(v, GLOBAL_CONFIG_TAG)) {
-                        in_global = true;
                         loc = IN_GLOBAL;
                     }
                     else if (pa_streq(v, AUDIO_HW_MODULE_TAG))
                         loc = IN_HW_MODULES;
                     else {
-                        pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
+                        pa_log("[%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
+                        ret = false;
+                        goto finish;
+                    }
+                    break;
+
+                case IN_GLOBAL:
+                    if (pa_streq(v, GLOBAL_CONFIG_EXT_TAG))
+                        loc = IN_GLOBAL_EXT;
+                    else {
+                        pa_log("[%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
                         ret = false;
                         goto finish;
                     }
@@ -420,7 +518,7 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                         loc = IN_OUTPUT_INPUT;
                         in_output = false;
                     } else {
-                        pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
+                        pa_log("[%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
                         ret = false;
                         goto finish;
                     }
@@ -447,7 +545,12 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
                     break;
 
                 case IN_CONFIG:
-                    pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
+                    pa_log("[%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
+                    ret = false;
+                    goto finish;
+
+                default:
+                    pa_log("[%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
                     ret = false;
                     goto finish;
             }
@@ -456,108 +559,121 @@ bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *co
         }
 
         /* Exit section */
-        if (ln[strlen(ln)-1] == '}') {
-            if (loc == IN_ROOT) {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - extra closing bracket", filename, n);
-                ret = false;
-                goto finish;
-            }
+        if (pa_streq(v, "}")) {
+            switch (loc) {
+                case IN_ROOT:
+                    pa_log("[%s:%u] failed to parse line - extra closing bracket", filename, n);
+                    ret = false;
+                    goto finish;
 
-            loc--;
-            if (loc == IN_MODULE) {
-                if (in_output)
-                    output = NULL;
-                else
-                    input = NULL;
-            }
-            if (loc == IN_ROOT)
-                module = NULL;
+                case IN_HW_MODULES:
+                    module = NULL;
+                    /* fall through */
+                case IN_GLOBAL:
+                    loc = IN_ROOT;
+                    break;
 
-            in_global = false;
+                case IN_OUTPUT_INPUT:
+                    if (in_output)
+                        output = NULL;
+                    else
+                        input = NULL;
+                    /* fall through */
+                case IN_MODULE:
+                    /* fall through */
+                case IN_CONFIG:
+                    /* fall through */
+                case IN_GLOBAL_EXT:
+                    loc--;
+                    break;
+            }
 
             continue;
         }
 
-        /* Parse global configuration */
-        if (in_global) {
+        if (loc == IN_GLOBAL ||
+            loc == IN_GLOBAL_EXT ||
+            loc == IN_CONFIG) {
+
             bool success = false;
 
-            d = ln+strspn(ln, WHITESPACE);
-            v = d;
-            d = v+strcspn(v, WHITESPACE);
+            if (loc == IN_GLOBAL) {
 
-            val = d+strspn(d, WHITESPACE);
-            d[0] = '\0';
-            d = val+strcspn(val, WHITESPACE);
-            d[0] = '\0';
+                /* Parse global configuration */
 
-            if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
-                success = parse_devices(val, true, &config->global_config.attached_output_devices);
-            else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
-                success = parse_devices(val, true, &config->global_config.default_output_device);
-            else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
-                success = parse_devices(val, false, &config->global_config.attached_input_devices);
-            else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG)) {
-                pa_log(__FILE__ ": speaker drc is not yet supported, skipping", filename);
-                success = true;
-            } else {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-                success = false;
-            }
-
-            if (!success) {
-                ret = false;
-                goto finish;
-            }
-        }
-
-        /* Parse per-output or per-input configuration */
-        if (loc == IN_CONFIG) {
-            bool success = false;
-
-            pa_assert(module);
-
-            d = ln+strspn(ln, WHITESPACE);
-            v = d;
-            d = v+strcspn(v, WHITESPACE);
-
-            val = d+strspn(d, WHITESPACE);
-            d[0] = '\0';
-            d = val+strcspn(val, WHITESPACE);
-            d[0] = '\0';
-
-
-            if ((in_output && !output) || (!in_output && !input)) {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line", filename, n);
-                ret = false;
-                goto finish;
-            }
-
-            if (pa_streq(v, SAMPLING_RATES_TAG))
-                success = parse_sampling_rates(val, in_output ? output->sampling_rates : input->sampling_rates);
-            else if (pa_streq(v, FORMATS_TAG))
-                success = parse_formats(val, in_output ? &output->formats : &input->formats);
-            else if (pa_streq(v, CHANNELS_TAG)) {
-                if (in_output)
-                    success = (parse_channels(val, true, &output->channel_masks) > 0);
-                else
-                    success = (parse_channels(val, false, &input->channel_masks) > 0);
-            } else if (pa_streq(v, DEVICES_TAG)) {
-                if (in_output)
-                    success = parse_devices(val, true, &output->devices);
-                else
-                    success = parse_devices(val, false, &input->devices);
-            } else if (pa_streq(v, FLAGS_TAG)) {
-                if (in_output)
-                    success = parse_flags(val, &output->flags);
+                if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
+                    success = parse_devices(filename, n, value, true,
+                                            &config->global_config.attached_output_devices, false);
+                else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
+                    success = parse_devices(filename, n, value, true,
+                                            &config->global_config.default_output_device, true);
+                else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
+                    success = parse_devices(filename, n, value, false,
+                                            &config->global_config.attached_input_devices, false);
+#ifdef DROID_HAVE_DRC
+                // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
+                else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
+                    /* TODO - Add support for dynamic range control */
+                    success = true; /* Do not fail while parsing speaker_drc_enabled entry */
+#endif
                 else {
-                    pa_log(__FILE__ ": [%s:%u] failed to parse line - output flags inside input definition", filename, n);
+                    pa_log("[%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
                     success = false;
                 }
-            } else {
-                pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-                success = false;
-            }
+
+            } else if (loc == IN_GLOBAL_EXT) {
+
+                /* Parse custom global configuration
+                 * For now just log all custom variables, don't do
+                 * anything with the values.
+                 * TODO: Store custom values somehow */
+
+                pa_log_debug("[%s:%u] TODO custom variable: %s = %s", filename, n, v, value);
+                success = true;
+
+            } else if (loc == IN_CONFIG) {
+
+                /* Parse per-output or per-input configuration */
+
+                if ((in_output && !output) || (!in_output && !input)) {
+                    pa_log("[%s:%u] failed to parse line", filename, n);
+                    ret = false;
+                    goto finish;
+                }
+
+                if (pa_streq(v, SAMPLING_RATES_TAG))
+                    success = parse_sampling_rates(filename, n, value,
+                                                   in_output ? output->sampling_rates : input->sampling_rates);
+                else if (pa_streq(v, FORMATS_TAG))
+                    success = parse_formats(filename, n, value, in_output ? &output->formats : &input->formats);
+                else if (pa_streq(v, CHANNELS_TAG)) {
+                    if (in_output)
+                        success = parse_channels(filename, n, value, true, &output->channel_masks);
+                    else
+                        success = parse_channels(filename, n, value, false, &input->channel_masks);
+                } else if (pa_streq(v, DEVICES_TAG)) {
+                    if (in_output)
+                        success = parse_devices(filename, n, value, true, &output->devices, false);
+                    else
+                        success = parse_devices(filename, n, value, false, &input->devices, false);
+                } else if (pa_streq(v, FLAGS_TAG)) {
+                    if (in_output)
+                        success = parse_output_flags(filename, n, value, &output->flags);
+                    else {
+#if DROID_HAL >= 3
+                        success = parse_input_flags(filename, n, value, &input->flags);
+#else
+                        pa_log("[%s:%u] failed to parse line - output flags inside input definition", filename, n);
+                        success = false;
+#endif
+                    }
+                } else {
+                    pa_log("[%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
+                    success = false;
+                }
+
+            } else
+                pa_assert_not_reached();
 
             if (!success) {
                 ret = false;
@@ -573,6 +689,8 @@ finish:
         pa_lock_fd(fileno(f), 0);
         fclose(f);
     }
+
+    pa_xfree(full_line);
 
     return ret;
 }
@@ -663,10 +781,14 @@ pa_droid_profile_set *pa_droid_profile_set_new(const pa_droid_config_hw_module *
 
     ps = pa_xnew0(pa_droid_profile_set, 1);
     ps->config = module->config;
-    ps->profiles = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_profile_free);
-    ps->output_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_mapping_free);
-    ps->input_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_mapping_free);
-    ps->all_ports = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) droid_port_free);
+    ps->profiles        = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_profile_free);
+    ps->output_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
+    ps->input_mappings  = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
+    ps->all_ports       = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
+                                              NULL, (pa_free_cb_t) droid_port_free);
 
     /* Each distinct hw module output matches one profile. If there are multiple inputs
      * combinations are made so that all possible outputs and inputs can be selected.
@@ -701,6 +823,14 @@ void pa_droid_profile_free(pa_droid_profile *ap) {
     pa_xfree(ap->name);
     pa_xfree(ap->description);
     pa_xfree(ap);
+}
+
+static void droid_port_free(pa_droid_port *p) {
+    pa_assert(p);
+
+    pa_xfree(p->name);
+    pa_xfree(p->description);
+    pa_xfree(p);
 }
 
 void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
@@ -749,9 +879,6 @@ static pa_droid_port *create_o_port(pa_droid_mapping *am, uint32_t device, const
     if (am->profile_set->config->global_config.default_output_device & device)
         p->priority += DEFAULT_PRIORITY;
 
-    if (check_port_availability(p->name))
-        p->priority += (DEFAULT_PRIORITY * 3);
-
     return p;
 }
 
@@ -765,8 +892,6 @@ static void add_o_ports(pa_droid_mapping *am) {
     pa_assert(am);
 
     devices = am->output->devices;
-
-    devices &= ~AUDIO_DEVICE_OUT_DEFAULT;
 
     /* IHF combo devices, these devices are combined with IHF */
     combo_devices = AUDIO_DEVICE_OUT_SPEAKER | AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
@@ -829,8 +954,8 @@ static void add_i_ports(pa_droid_mapping *am) {
     pa_assert(am);
 
     devices = am->input->devices;
-#ifdef HAL_V2
-    devices &= ~AUDIO_DEVICE_IN_DEFAULT;
+#if DROID_HAL >= 2
+    devices &= ~AUDIO_DEVICE_BIT_IN;
 #endif
 
     while (devices) {
@@ -838,8 +963,10 @@ static void add_i_ports(pa_droid_mapping *am) {
 
         if (devices & cur_device) {
 
-#ifdef HAL_V2
+#if DROID_HAL >= 2
+#ifndef DROID_DEVICE_MAKO
             cur_device |= AUDIO_DEVICE_BIT_IN;
+#endif
 #endif
 
             pa_assert_se(pa_droid_input_port_name(cur_device, &name));
@@ -856,15 +983,8 @@ static void add_i_ports(pa_droid_mapping *am) {
                 p->priority = DEFAULT_PRIORITY;
                 p->device = cur_device;
 
-                if (am->profile_set->config->global_config.attached_input_devices & cur_device & ~AUDIO_DEVICE_BIT_IN)
+                if (am->profile_set->config->global_config.attached_input_devices & cur_device)
                     p->priority += DEFAULT_PRIORITY;
-
-                /* Make builtin mic the default input device */
-                if (cur_device == AUDIO_DEVICE_IN_BUILTIN_MIC)
-                    p->priority += DEFAULT_PRIORITY;
-
-                if (check_port_availability(p->name))
-                    p->priority += (DEFAULT_PRIORITY * 3);
 
                 pa_hashmap_put(am->profile_set->all_ports, p->name, p);
             } else
@@ -943,8 +1063,13 @@ bool pa_droid_input_port_name(audio_devices_t value, const char **to_str) {
     return string_convert_num_to_str(string_conversion_table_input_device_fancy, (uint32_t) value, to_str);
 }
 
+bool pa_droid_audio_source_name(audio_source_t value, const char **to_str) {
+    return string_convert_num_to_str(string_conversion_table_audio_source_fancy, (uint32_t) value, to_str);
+}
+
 static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
     pa_droid_port *p;
+    pa_device_port_new_data dp_data;
     pa_device_port *dp;
     pa_droid_port_data *data;
     uint32_t idx;
@@ -955,26 +1080,24 @@ static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_d
     PA_IDXSET_FOREACH(p, am->ports, idx) {
         if (!(dp = pa_hashmap_get(ports, p->name))) {
             pa_log_debug("  New port %s", p->name);
+            pa_device_port_new_data_init(&dp_data);
+            pa_device_port_new_data_set_name(&dp_data, p->name);
+            pa_device_port_new_data_set_description(&dp_data, p->description);
+            pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
+            pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
 
-            pa_device_port_new_data port_data;
-            pa_device_port_new_data_init(&port_data);
-            pa_device_port_new_data_set_name(&port_data, p->name);
-            pa_device_port_new_data_set_description(&port_data, p->description);
-            pa_device_port_new_data_set_direction(&port_data, p->mapping->direction);
-            dp = pa_device_port_new(core, &port_data, sizeof(pa_droid_port_data));
-            pa_device_port_new_data_done(&port_data);
+            dp = pa_device_port_new(core, &dp_data, sizeof(pa_droid_port_data));
             dp->priority = p->priority;
 
+            pa_device_port_new_data_done(&dp_data);
+
             pa_hashmap_put(ports, dp->name, dp);
-            dp->profiles = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_profile_free);
+            dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 
             data = PA_DEVICE_PORT_DATA(dp);
             data->device = p->device;
         } else
             pa_log_debug("  Port %s from cache", p->name);
-
-        /* If port/jack detection is available, start as not available by default */
-        dp->available = check_port_availability(p->name) ? PA_AVAILABLE_NO : PA_AVAILABLE_UNKNOWN;
 
         if (cp)
             pa_hashmap_put(dp->profiles, cp->name, cp);
@@ -1032,15 +1155,13 @@ static pa_droid_hw_module *droid_hw_module_open(pa_core *core, pa_droid_config_a
 
     hw_get_module_by_class(AUDIO_HARDWARE_MODULE_ID, module->name, (const hw_module_t**) &hwmod);
     if (!hwmod) {
-        pa_log("Failed to get hw module id: %s name: %s, trying alternative.", AUDIO_HARDWARE_MODULE_ID, module->name);
-        hw_get_module_by_class(AUDIO_HARDWARE_MODULE_ID2, module->name, (const hw_module_t**) &hwmod);
-        if (!hwmod) {
-            pa_log("Failed to get hw module id: %s name: %s.", AUDIO_HARDWARE_MODULE_ID2, module->name);
-            goto fail;
-        }
+        pa_log("Failed to get hw module %s.", module->name);
+        goto fail;
     }
 
-    pa_log_info("Loaded hw module %s", module->name);
+    pa_log_info("Loaded hw module %s (HAL %d.%d.%d)", module->name, ANDROID_VERSION_MAJOR,
+                                                                    ANDROID_VERSION_MINOR,
+                                                                    ANDROID_VERSION_PATCH);
 
     ret = audio_hw_device_open(hwmod, &device);
     if (!device) {

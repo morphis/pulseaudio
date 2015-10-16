@@ -50,8 +50,14 @@ PA_MODULE_VERSION(PACKAGE_VERSION);
 
 static const char* const valid_modargs[] = {
     "rate",
+    "format",
+    "channels",
+    "channel_map",
+    "source_rate",
+    "source_format",
+    "source_channel_map",
     "flags",
-    "devices",
+    "input_devices",
     "source_name",
     "module_id",
     "source_buffer",
@@ -74,11 +80,11 @@ int pa__init(pa_module *m) {
     pa_assert(m);
 
     if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
-        pa_log("Failed to parse module argumets.");
+        pa_log("Failed to parse module arguments.");
         goto fail;
     }
 
-    if (!(m->userdata = pa_droid_source_new(m, ma, __FILE__, NULL, NULL, NULL)))
+    if (!(m->userdata = pa_droid_source_new(m, ma, __FILE__, (audio_devices_t) 0, NULL, NULL, NULL)))
         goto fail;
 
     pa_modargs_free(ma);

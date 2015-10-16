@@ -28,24 +28,32 @@
 #include <pulsecore/core-util.h>
 #include <pulsecore/macro.h>
 #include <pulsecore/mutex.h>
-#include <pulsecore/modargs.h>
 
-#include <hardware/audio.h>
-#include <hardware_legacy/audio_policy_conf.h>
+#include <android-config.h>
+
+#if !defined(ANDROID_VERSION_MAJOR) || !defined(ANDROID_VERSION_MINOR) || !defined(ANDROID_VERSION_PATCH)
+#error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"
+#endif
+
+#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
+#include "droid-util-41qc.h"
+#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 2
+#include "droid-util-42.h"
+#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 4
+#include "droid-util-44.h"
+#elif ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
+#include "droid-util-51.h"
+#else
+#error "No valid ANDROID_VERSION found."
+#endif
 
 #define PROP_DROID_DEVICES    "droid.devices"
 #define PROP_DROID_FLAGS      "droid.flags"
 #define PROP_DROID_HW_MODULE  "droid.hw_module"
 
-/* Alternative module ID */
-#define AUDIO_HARDWARE_MODULE_ID2 "libaudio"
-
-/* From module-device-restore */
-#define MODULE_DEVICE_RESTORE_SKIP_PROPERTY "module-device-restore.skip"
-
 typedef struct pa_droid_hw_module pa_droid_hw_module;
 typedef struct pa_droid_card_data pa_droid_card_data;
-typedef void (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
+typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 
 typedef struct pa_droid_config_audio pa_droid_config_audio;
 typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
@@ -92,9 +100,9 @@ typedef struct pa_droid_config_output {
     const pa_droid_config_hw_module *module;
 
     char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
+    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats;
+    audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
     audio_output_flags_t flags;
 } pa_droid_config_output;
@@ -103,10 +111,13 @@ typedef struct pa_droid_config_input {
     const pa_droid_config_hw_module *module;
 
     char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
+    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
     audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-    audio_format_t formats;
+    audio_format_t formats; /* 0 -> dynamic */
     audio_devices_t devices;
+#if DROID_HAL >= 3
+    audio_input_flags_t flags;
+#endif
 } pa_droid_config_input;
 
 struct pa_droid_config_hw_module {
@@ -225,6 +236,10 @@ char *pa_list_string_output_device(audio_devices_t devices);
 char *pa_list_string_input_device(audio_devices_t devices);
 char *pa_list_string_flags(audio_output_flags_t flags);
 
+/* Get default audio source associated with input device.
+ * Return true if default source was found, false if not. */
+bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source);
+
 /* Config parser */
 bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
 pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
@@ -252,5 +267,8 @@ void pa_droid_add_card_ports(pa_card_profile *cp, pa_hashmap *ports, pa_droid_ma
 /* Pretty port names */
 bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
 bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
+
+/* Pretty audio source names */
+bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
 
 #endif

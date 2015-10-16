@@ -1859,44 +1859,44 @@ if HAVE_ANDROID
 libdroid_util_la_SOURCES = modules/droid/droid-util.c modules/droid/droid-util.h
 libdroid_util_la_LDFLAGS = -avoid-version
 libdroid_util_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS)
-libdroid_util_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
+libdroid_util_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 
 libdroid_sink_la_SOURCES = modules/droid/droid-sink.c modules/droid/droid-sink.h
 libdroid_sink_la_LDFLAGS = -avoid-version
 libdroid_sink_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la
-libdroid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
+libdroid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 
 libdroid_source_la_SOURCES = modules/droid/droid-source.c modules/droid/droid-source.h
 libdroid_source_la_LDFLAGS = -avoid-version
 libdroid_source_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la
-libdroid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
+libdroid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 
 module_droid_sink_la_SOURCES = modules/droid/module-droid-sink.c
 module_droid_sink_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_droid_sink_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la libdroid-sink.la
-module_droid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
+module_droid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 
 module_droid_source_la_SOURCES = modules/droid/module-droid-source.c
 module_droid_source_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_droid_source_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la libdroid-source.la
-module_droid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
+module_droid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 
 module_droid_card_la_SOURCES = modules/droid/module-droid-card.c
 module_droid_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_droid_card_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la libdroid-sink.la libdroid-source.la
-module_droid_card_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
+module_droid_card_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 
 if HAVE_UDEV
 module_droid_card_la_SOURCES += modules/droid/droid-extcon.c modules/droid/droid-extcon.h
 module_droid_card_la_LIBADD += $(UDEV_LIBS)
-module_droid_card_la_CFLAGS += $(UDEV_CFLAGS)
+module_droid_card_la_CFLAGS += $(UDEV_CFLAGS) -DPULSEAUDIO_VERSION=6
 endif
 endif
 
 module_alsa_sink_la_SOURCES = modules/alsa/module-alsa-sink.c
 module_alsa_sink_la_LDFLAGS = $(MODULE_LDFLAGS)
 module_alsa_sink_la_LIBADD = $(MODULE_LIBADD) $(ASOUNDLIB_LIBS) libalsa-util.la
-module_alsa_sink_la_CFLAGS = $(AM_CFLAGS) $(ASOUNDLIB_CFLAGS)
+module_alsa_sink_la_CFLAGS = $(AM_CFLAGS) $(ASOUNDLIB_CFLAGS) 
 
 module_alsa_source_la_SOURCES = modules/alsa/module-alsa-source.c
 module_alsa_source_la_LDFLAGS = $(MODULE_LDFLAGS)

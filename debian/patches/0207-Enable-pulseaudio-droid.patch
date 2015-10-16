@@ -75,7 +75,7 @@ Index: pulseaudio-6.0/src/Makefile.am
  if HAVE_ESOUND
  SYMDEF_FILES += \
  		module-esound-protocol-tcp-symdef.h \
-@@ -1829,6 +1846,44 @@ libalsa_util_la_LIBADD += $(DBUS_LIBS)
+@@ -1829,10 +1846,48 @@ libalsa_util_la_LIBADD += $(DBUS_LIBS)
  libalsa_util_la_CFLAGS += $(DBUS_CFLAGS)
  endif
  
@@ -83,43 +83,48 @@ Index: pulseaudio-6.0/src/Makefile.am
 +libdroid_util_la_SOURCES = modules/droid/droid-util.c modules/droid/droid-util.h
 +libdroid_util_la_LDFLAGS = -avoid-version
 +libdroid_util_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS)
-+libdroid_util_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
++libdroid_util_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 +
 +libdroid_sink_la_SOURCES = modules/droid/droid-sink.c modules/droid/droid-sink.h
 +libdroid_sink_la_LDFLAGS = -avoid-version
 +libdroid_sink_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la
-+libdroid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
++libdroid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 +
 +libdroid_source_la_SOURCES = modules/droid/droid-source.c modules/droid/droid-source.h
 +libdroid_source_la_LDFLAGS = -avoid-version
 +libdroid_source_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la
-+libdroid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
++libdroid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 +
 +module_droid_sink_la_SOURCES = modules/droid/module-droid-sink.c
 +module_droid_sink_la_LDFLAGS = $(MODULE_LDFLAGS)
 +module_droid_sink_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la libdroid-sink.la
-+module_droid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
++module_droid_sink_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 +
 +module_droid_source_la_SOURCES = modules/droid/module-droid-source.c
 +module_droid_source_la_LDFLAGS = $(MODULE_LDFLAGS)
 +module_droid_source_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la libdroid-source.la
-+module_droid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
++module_droid_source_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 +
 +module_droid_card_la_SOURCES = modules/droid/module-droid-card.c
 +module_droid_card_la_LDFLAGS = $(MODULE_LDFLAGS)
 +module_droid_card_la_LIBADD = $(MODULE_LIBADD) $(LIBHARDWARE_LIBS) libdroid-util.la libdroid-sink.la libdroid-source.la
-+module_droid_card_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS)
++module_droid_card_la_CFLAGS = $(AM_CFLAGS) $(LIBHARDWARE_CFLAGS) -DPULSEAUDIO_VERSION=6
 +
 +if HAVE_UDEV
 +module_droid_card_la_SOURCES += modules/droid/droid-extcon.c modules/droid/droid-extcon.h
 +module_droid_card_la_LIBADD += $(UDEV_LIBS)
-+module_droid_card_la_CFLAGS += $(UDEV_CFLAGS)
++module_droid_card_la_CFLAGS += $(UDEV_CFLAGS) -DPULSEAUDIO_VERSION=6
 +endif
 +endif
 +
  module_alsa_sink_la_SOURCES = modules/alsa/module-alsa-sink.c
  module_alsa_sink_la_LDFLAGS = $(MODULE_LDFLAGS)
  module_alsa_sink_la_LIBADD = $(MODULE_LIBADD) $(ASOUNDLIB_LIBS) libalsa-util.la
+-module_alsa_sink_la_CFLAGS = $(AM_CFLAGS) $(ASOUNDLIB_CFLAGS)
++module_alsa_sink_la_CFLAGS = $(AM_CFLAGS) $(ASOUNDLIB_CFLAGS) 
+ 
+ module_alsa_source_la_SOURCES = modules/alsa/module-alsa-source.c
+ module_alsa_source_la_LDFLAGS = $(MODULE_LDFLAGS)
 Index: pulseaudio-6.0/src/modules/droid/droid-extcon.c
 ===================================================================
 --- /dev/null
@@ -435,10 +440,9 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-sink.c
-@@ -0,0 +1,1396 @@
+@@ -0,0 +1,1287 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
-+ * Copyright (C) 2010 Nokia Corporation.
 + *
 + * Contact: Juho Hämäläinen <juho.hamalainen@tieto.com>
 + *
@@ -514,21 +518,19 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    pa_memblockq *memblockq;
 +    pa_memchunk silence;
-+    size_t buffer_count;
 +    size_t buffer_size;
-+    pa_usec_t buffer_latency;
-+    pa_usec_t timestamp;
++    pa_usec_t buffer_time;
++    pa_usec_t write_time;
++    pa_usec_t write_threshold;
 +
 +    audio_devices_t primary_devices;
 +    audio_devices_t extra_devices;
++    pa_hashmap *extra_devices_map;
 +
 +    bool use_hw_volume;
 +    bool use_voice_volume;
-+    bool voice_volume_call_mode;
-+    bool voice_virtual_stream;
 +    char *voice_property_key;
 +    char *voice_property_value;
-+    pa_sink_input *voice_virtual_sink_input;
 +    pa_sink_input *voice_control_sink_input;
 +    pa_subscription *sink_input_subscription;
 +
@@ -540,9 +542,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_droid_card_data *card_data;
 +    pa_droid_hw_module *hw_module;
 +    struct audio_stream_out *stream_out;
-+
-+    char *sco_fake_sink_name;
-+    struct pa_sink *sco_fake_sink;
 +};
 +
 +enum {
@@ -568,17 +567,9 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +#define DEFAULT_VOICE_CONTROL_PROPERTY_KEY      "media.role"
 +#define DEFAULT_VOICE_CONTROL_PROPERTY_VALUE    "phone"
 +
-+/* While the HAL interface supports until 0, android just use up to ~0.05
-+ * Lower values can crash the modem or cause mixer issues */
-+#define VOICE_VOLUME_MIN_VALUE                  0.05
-+
-+/* Name of the fake sco sink used for HSP (used to set transport property) */
-+#define DEFAULT_SCO_FAKE_SINK "sink.fake.sco"
-+#define HSP_PREVENT_SUSPEND_STR "bluetooth.hsp.prevent.suspend.transport"
-+
++static void parameter_free(droid_parameter_mapping *m);
 +static void userdata_free(struct userdata *u);
-+static void set_voice_volume_from_input(struct userdata *u, pa_sink_input *i);
-+static struct pa_sink *pa_sco_fake_sink_discover(pa_core *core, const char *sink_name);
++static void set_voice_volume(struct userdata *u, pa_sink_input *i);
 +
 +static void set_primary_devices(struct userdata *u, audio_devices_t devices) {
 +    pa_assert(u);
@@ -587,45 +578,61 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    u->primary_devices = devices;
 +}
 +
-+static void add_extra_devices(struct userdata *u, audio_devices_t devices) {
++static bool add_extra_devices(struct userdata *u, audio_devices_t devices) {
++    void *value;
++    uint32_t count;
++    bool need_update = false;
++
 +    pa_assert(u);
++    pa_assert(u->extra_devices_map);
 +    pa_assert(devices);
 +
-+    u->extra_devices |= devices;
++    if ((value = pa_hashmap_get(u->extra_devices_map, PA_UINT_TO_PTR(devices)))) {
++        count = PA_PTR_TO_UINT(value);
++        count++;
++        pa_hashmap_remove(u->extra_devices_map, PA_UINT_TO_PTR(devices));
++        pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(count));
++
++        /* added extra device already exists in hashmap, so no need to update route. */
++        need_update = false;
++    } else {
++        pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(1));
++        u->extra_devices |= devices;
++        need_update = true;
++    }
++
++    return need_update;
 +}
 +
-+static void remove_extra_devices(struct userdata *u, audio_devices_t devices) {
++static bool remove_extra_devices(struct userdata *u, audio_devices_t devices) {
++    void *value;
++    uint32_t count;
++    bool need_update = false;
++
 +    pa_assert(u);
++    pa_assert(u->extra_devices_map);
 +    pa_assert(devices);
 +
-+    u->extra_devices &= ~devices;
-+}
++    if ((value = pa_hashmap_get(u->extra_devices_map, PA_UINT_TO_PTR(devices)))) {
++        pa_hashmap_remove(u->extra_devices_map, PA_UINT_TO_PTR(devices));
++        count = PA_PTR_TO_UINT(value);
++        count--;
++        if (count == 0) {
++            u->extra_devices &= ~devices;
++            need_update = true;
++        } else {
++            /* added extra devices still exists in hashmap, so no need to update route. */
++            pa_hashmap_put(u->extra_devices_map, PA_UINT_TO_PTR(devices), PA_UINT_TO_PTR(count));
++            need_update = false;
++        }
++    }
 +
-+static void parameter_free(droid_parameter_mapping *m) {
-+    pa_assert(m);
-+
-+    pa_xfree(m->key);
-+    pa_xfree(m->value);
-+    pa_xfree(m);
-+}
-+
-+static void set_fake_sco_sink_transport_property(struct userdata *u, const char *value) {
-+    pa_proplist *pl;
-+
-+    pa_assert(u);
-+    pa_assert(value);
-+    pa_assert(u->sco_fake_sink);
-+
-+    pa_log_debug("Setting SCO sink suspend property to %s", value);
-+
-+    pl = pa_proplist_new();
-+    pa_proplist_sets(pl, HSP_PREVENT_SUSPEND_STR, value);
-+    pa_sink_update_proplist(u->sco_fake_sink, PA_UPDATE_REPLACE, pl);
-+    pa_proplist_free(pl);
++    return need_update;
 +}
 +
 +/* Called from main context during voice calls, and from IO context during media operation. */
-+static bool do_routing(struct userdata *u) {
++static void do_routing(struct userdata *u) {
++    int ret;
 +    audio_devices_t routing;
 +    char tmp[32];
 +
@@ -635,20 +642,25 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    routing = u->primary_devices | u->extra_devices;
 +
 +    pa_snprintf(tmp, sizeof(tmp), "%s=%u;", AUDIO_PARAMETER_STREAM_ROUTING, routing);
-+    pa_log_debug("Routing: set_parameters(): %s (%#010x)", tmp, routing);
++    pa_log_debug("set_parameters(%s) %#010x", tmp, routing);
 +    pa_droid_hw_module_lock(u->hw_module);
-+    u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
++    ret = u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
 +    pa_droid_hw_module_unlock(u->hw_module);
 +
-+    return true;
++    if (ret < 0) {
++        if (ret == -ENOSYS)
++            pa_log_warn("set_parameters(%s) not allowed while stream is active", tmp);
++        else
++            pa_log_warn("set_parameters(%s) failed", tmp);
++    }
 +}
 +
 +static bool parse_device_list(const char *str, audio_devices_t *dst) {
-+    char *dev;
-+    const char *state = NULL;
-+
 +    pa_assert(str);
 +    pa_assert(dst);
++
++    char *dev;
++    const char *state = NULL;
 +
 +    *dst = 0;
 +
@@ -675,6 +687,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    /* Drop our rendered audio and write silence to HAL. */
 +    pa_memblockq_drop(u->memblockq, u->buffer_size);
++    u->write_time = pa_rtclock_now();
 +
 +    /* We should be able to write everything in one go as long as memblock size
 +     * is multiples of buffer_size. Even if we don't write whole buffer size
@@ -683,6 +696,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    p = pa_memblock_acquire(u->silence.memblock);
 +    wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + u->silence.index, u->silence.length);
 +    pa_memblock_release(u->silence.memblock);
++
++    u->write_time = pa_rtclock_now() - u->write_time;
 +
 +    if (wrote < 0)
 +        return -1;
@@ -700,6 +715,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    /* We should be able to write everything in one go as long as memblock size
 +     * is multiples of buffer_size. */
 +
++    u->write_time = pa_rtclock_now();
++
 +    for (;;) {
 +        p = pa_memblock_acquire(c.memblock);
 +        wrote = u->stream_out->write(u->stream_out, (const uint8_t*) p + c.index, c.length);
@@ -708,6 +725,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +        if (wrote < 0) {
 +            pa_memblockq_drop(u->memblockq, c.length);
 +            pa_memblock_unref(c.memblock);
++            u->write_time = 0;
++            pa_log("failed to write stream (%d)", wrote);
 +            return -1;
 +        }
 +
@@ -723,6 +742,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +        break;
 +    }
 +
++    u->write_time = pa_rtclock_now() - u->write_time;
++
 +    return 0;
 +}
 +static void thread_render(struct userdata *u) {
@@ -730,7 +751,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    size_t missing;
 +
 +    length = pa_memblockq_get_length(u->memblockq);
-+    missing = u->buffer_size * u->buffer_count - length;
++    missing = u->buffer_size - length;
 +
 +    if (missing > 0) {
 +        pa_memchunk c;
@@ -792,22 +813,18 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    pa_thread_mq_install(&u->thread_mq);
 +
-+    u->timestamp = 0;
-+
 +    for (;;) {
 +        int ret;
 +
 +        if (PA_SINK_IS_OPENED(u->sink->thread_info.state)) {
 +
-+            u->timestamp = pa_rtclock_now();
-+
 +            if (PA_UNLIKELY(u->sink->thread_info.rewind_requested))
 +                process_rewind(u);
-+            else
-+                thread_render(u);
 +
 +            if (pa_rtpoll_timer_elapsed(u->rtpoll)) {
-+                pa_usec_t now, sleept;
++                pa_usec_t sleept = 0;
++
++                thread_render(u);
 +
 +                if (u->routing_counter == u->mute_routing_after) {
 +                    do_routing(u);
@@ -818,12 +835,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +                } else
 +                    thread_write(u);
 +
-+                now = pa_rtclock_now();
-+
-+                if (now - u->timestamp > u->buffer_latency / 2)
-+                    sleept = 0;
-+                else
-+                    sleept = u->buffer_latency / 2 - (now - u->timestamp) ;
++                if (u->write_time > u->write_threshold)
++                    sleept = u->buffer_time;
 +
 +                pa_rtpoll_set_timer_relative(u->rtpoll, sleept);
 +            }
@@ -831,7 +844,11 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +            pa_rtpoll_set_timer_disabled(u->rtpoll);
 +
 +        /* Sleep */
++#if (PULSEAUDIO_VERSION == 5)
++        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
++#elif (PULSEAUDIO_VERSION == 6)
 +        if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
++#endif
 +            goto fail;
 +
 +        if (ret == 0)
@@ -903,7 +920,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +            /* HAL reports milliseconds */
 +            if (u->stream_out)
-+                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC * u->buffer_count;
++                r = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
 +
 +            *((pa_usec_t*) data) = r;
 +
@@ -927,7 +944,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +                    /* Fall through */
 +                case PA_SINK_RUNNING: {
 +                    int r;
-+                    u->timestamp = 0;
 +
 +                    if (u->sink->thread_info.state == PA_SINK_SUSPENDED) {
 +                        if ((r = unsuspend(u)) < 0)
@@ -938,8 +954,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +                    break;
 +                }
 +
++                case PA_SINK_UNLINKED: {
++                    /* Suspending since some implementations do not want to free running stream. */
++                    suspend(u);
++                    break;
++                }
++
 +                /* not needed */
-+                case PA_SINK_UNLINKED:
 +                case PA_SINK_INIT:
 +                case PA_SINK_INVALID_STATE:
 +                    ;
@@ -954,7 +975,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +static int sink_set_port_cb(pa_sink *s, pa_device_port *p) {
 +    struct userdata *u = s->userdata;
 +    pa_droid_port_data *data;
-+    const char *sco_transport_enabled;
 +
 +    pa_assert(u);
 +    pa_assert(p);
@@ -972,24 +992,9 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_log_debug("Sink set port %u", data->device);
 +
 +    set_primary_devices(u, data->device);
-+
-+    /* See if the sco fake sink element is available (only when needed) */
-+    if ((u->sco_fake_sink == NULL) && (data->device & AUDIO_DEVICE_OUT_ALL_SCO))
-+        u->sco_fake_sink = pa_sco_fake_sink_discover(u->core, u->sco_fake_sink_name);
-+
-+    /* Update the bluetooth hsp transport property before we do the routing */
-+    if (u->sco_fake_sink) {
-+        sco_transport_enabled = pa_proplist_gets(u->sco_fake_sink->proplist, HSP_PREVENT_SUSPEND_STR);
-+        if (sco_transport_enabled && pa_streq(sco_transport_enabled, "true")) {
-+            if (data->device & ~AUDIO_DEVICE_OUT_ALL_SCO)
-+                set_fake_sco_sink_transport_property(u, "false");
-+        } else if (data->device & AUDIO_DEVICE_OUT_ALL_SCO)
-+            set_fake_sco_sink_transport_property(u, "true");
-+    }
-+
 +    /* If we are in voice call, sink is usually in suspended state and routing change can be applied immediately.
-+     * When in media use cases, do the routing change in IO thread. */
-+    if (u->use_voice_volume)
++     * When in media use cases, do the routing change in IO thread if we are currently in RUNNING or IDLE state. */
++    if (u->use_voice_volume || !PA_SINK_IS_OPENED(pa_sink_get_state(u->sink)))
 +        do_routing(u);
 +    else {
 +        pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
@@ -1024,40 +1029,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    }
 +}
 +
-+/* Called from main context when set from input and from IO when set from sink volume. */
-+static void set_voice_volume(struct userdata *u, pa_cvolume vol) {
-+    float val;
-+
-+    pa_assert(u);
-+
-+    val = pa_sw_volume_to_linear(pa_cvolume_avg(&vol));
-+
-+    /* Make sure our lower value is still HAL compatible */
-+    if (val < VOICE_VOLUME_MIN_VALUE) {
-+        val = VOICE_VOLUME_MIN_VALUE;
-+        pa_log_debug("Forcing minimal voice volume to %f", val);
-+    }
-+
-+    pa_log_debug("Set voice volume %f", val);
-+
-+    pa_droid_hw_module_lock(u->hw_module);
-+    if (u->hw_module->device->set_voice_volume(u->hw_module->device, val) < 0)
-+        pa_log_warn("Failed to set voice volume.");
-+    pa_droid_hw_module_unlock(u->hw_module);
-+}
-+
-+static void sink_set_voice_volume_cb(pa_sink *s) {
-+    struct userdata *u = s->userdata;
-+    pa_cvolume r;
-+
-+    /* Shift up by the base volume */
-+    pa_sw_cvolume_divide_scalar(&r, &s->real_volume, s->base_volume);
-+
-+    set_voice_volume(u, r);
-+}
-+
 +/* Called from main thread */
-+static void set_voice_volume_from_input(struct userdata *u, pa_sink_input *i) {
++static void set_voice_volume(struct userdata *u, pa_sink_input *i) {
 +    pa_cvolume vol;
 +    float val;
 +
@@ -1067,7 +1040,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    pa_sink_input_get_volume(i, &vol, true);
 +
-+    set_voice_volume(u, vol);
++    val = pa_sw_volume_to_linear(pa_cvolume_avg(&vol));
++    pa_log_debug("Set voice volume %f", val);
++
++    pa_droid_hw_module_lock(u->hw_module);
++    if (u->hw_module->device->set_voice_volume(u->hw_module->device, val) < 0)
++        pa_log_warn("Failed to set voice volume.");
++    pa_droid_hw_module_unlock(u->hw_module);
 +}
 +
 +static void update_volumes(struct userdata *u) {
@@ -1077,7 +1056,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_droid_hw_module_lock(u->hw_module);
 +    if (u->stream_out->set_volume) {
 +        pa_log_debug("Probe hw volume support for %s", u->sink->name);
-+        pa_log_debug("Stream out volume set to 1.0f, 1.0f");
 +        ret = u->stream_out->set_volume(u->stream_out, 1.0f, 1.0f);
 +    }
 +    pa_droid_hw_module_unlock(u->hw_module);
@@ -1147,85 +1125,17 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_NEW)) {
 +        if (!u->voice_control_sink_input && (i = find_volume_control_sink_input(u))) {
 +            u->voice_control_sink_input = i;
-+            set_voice_volume_from_input(u, i);
++            set_voice_volume(u, i);
 +        }
 +    }
 +    else if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_CHANGE)) {
 +        if (u->voice_control_sink_input == i)
-+            set_voice_volume_from_input(u, i);
++            set_voice_volume(u, i);
 +    }
 +    else if (t == (PA_SUBSCRIPTION_EVENT_SINK_INPUT | PA_SUBSCRIPTION_EVENT_REMOVE)) {
 +        if (u->voice_control_sink_input == i)
 +            u->voice_control_sink_input = NULL;
 +    }
-+}
-+
-+/* For voice virtual stream, based on meego-mainvolume */
-+static void sink_input_kill_cb(pa_sink_input *i) {
-+    struct userdata *u;
-+
-+    pa_sink_input_assert_ref(i);
-+    pa_assert_se(u = i->userdata);
-+
-+    pa_sink_input_unlink(u->voice_virtual_sink_input);
-+    pa_sink_input_unref(u->voice_virtual_sink_input);
-+    u->voice_virtual_sink_input = NULL;
-+}
-+
-+/* no-op */
-+static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk) {
-+    return 0;
-+}
-+
-+/* no-op */
-+static void sink_input_process_rewind_cb(pa_sink_input *i, size_t nbytes) {
-+}
-+
-+static void create_voice_virtual_stream(struct userdata *u) {
-+    pa_sink_input_new_data data;
-+
-+    pa_assert(u);
-+
-+    if (!u->voice_virtual_stream || u->voice_virtual_sink_input)
-+        return;
-+
-+    pa_sink_input_new_data_init(&data);
-+
-+    data.driver = __FILE__;
-+    data.module = u->module;
-+    pa_proplist_sets(data.proplist, PA_PROP_MEDIA_NAME, "Virtual Stream for Voice Volume Control (Droid)");
-+    pa_proplist_sets(data.proplist, PA_PROP_MEDIA_ROLE, "phone");
-+    pa_sink_input_new_data_set_sample_spec(&data, &u->core->default_sample_spec);
-+    pa_sink_input_new_data_set_channel_map(&data, &u->core->default_channel_map);
-+    data.flags = PA_SINK_INPUT_START_CORKED | PA_SINK_INPUT_NO_REMAP | PA_SINK_INPUT_NO_REMIX;
-+
-+    pa_sink_input_new(&u->voice_virtual_sink_input, u->module->core, &data);
-+    pa_sink_input_new_data_done(&data);
-+
-+    if (!u->voice_virtual_sink_input) {
-+        pa_log_warn("Failed to create virtual sink input.");
-+        return;
-+    }
-+
-+    u->voice_virtual_sink_input->userdata = u;
-+    u->voice_virtual_sink_input->kill = sink_input_kill_cb;
-+    u->voice_virtual_sink_input->pop = sink_input_pop_cb;
-+    u->voice_virtual_sink_input->process_rewind = sink_input_process_rewind_cb;
-+
-+    pa_sink_input_put(u->voice_virtual_sink_input);
-+
-+    pa_log_debug("Created virtual sink input for voice call volume control.");
-+}
-+
-+static void destroy_voice_virtual_stream(struct userdata *u) {
-+    pa_assert(u);
-+
-+    if (!u->voice_virtual_sink_input)
-+        return;
-+
-+    sink_input_kill_cb(u->voice_virtual_sink_input);
-+
-+    pa_log_debug("Removed virtual stream.");
 +}
 +
 +/* Called from main thread */
@@ -1240,7 +1150,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_assert(u);
 +    pa_assert(u->sink == sink);
 +
-+    pa_log_debug("Set voice control - use_voice_volume: %d, enable: %d", u->use_voice_volume, enable);
 +    if (u->use_voice_volume == enable)
 +        return;
 +
@@ -1248,47 +1157,24 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    if (u->use_voice_volume) {
 +        pa_log_debug("Using voice volume control for %s", u->sink->name);
++        pa_sink_set_set_volume_callback(u->sink, NULL);
 +
-+        if (u->voice_virtual_stream)
-+            create_voice_virtual_stream(u);
++        /* Susbcription tracking voice call volume control sink-input is set up when
++         * voice volume control is enabled. In case volume control sink-input has already
++         * connected to the sink, check for the sink-input here as well. */
 +
-+        if (u->voice_volume_call_mode) {
-+            /* In this case we want the sink volume to directly map into the voice volume */
-+            pa_log_debug("Sink volume is now controlling the voice volume for %s", u->sink->name);
++        if (!u->sink_input_subscription)
++            u->sink_input_subscription = pa_subscription_new(u->core,
++                                                             PA_SUBSCRIPTION_MASK_SINK_INPUT,
++                                                             (pa_subscription_cb_t) sink_input_subscription_cb,
++                                                             u);
 +
-+            /* First disable module-device-restore, as we don't want to save the voice volume
-+             * as the default sink volume when restoring to the default mode */
-+            pa_proplist_sets(u->sink->proplist, MODULE_DEVICE_RESTORE_SKIP_PROPERTY, "true");
-+
-+            /* Then map normal sink volume changes to voice call volume changes */
-+            pa_sink_set_set_volume_callback(u->sink, sink_set_voice_volume_cb);
-+        } else {
-+            pa_sink_set_set_volume_callback(u->sink, NULL);
-+
-+            /* Susbcription tracking voice call volume control sink-input is set up when
-+             * voice volume control is enabled. In case volume control sink-input has already
-+             * connected to the sink, check for the sink-input here as well. */
-+
-+            if (!u->sink_input_subscription)
-+                u->sink_input_subscription = pa_subscription_new(u->core,
-+                                                                 PA_SUBSCRIPTION_MASK_SINK_INPUT,
-+                                                                 (pa_subscription_cb_t) sink_input_subscription_cb,
-+                                                                 u);
-+
-+            if ((i = find_volume_control_sink_input(u))) {
-+                u->voice_control_sink_input = i;
-+                set_voice_volume_from_input(u, i);
-+            }
++        if ((i = find_volume_control_sink_input(u))) {
++            u->voice_control_sink_input = i;
++            set_voice_volume(u, i);
 +        }
++
 +    } else {
-+        if (u->voice_virtual_stream)
-+            destroy_voice_virtual_stream(u);
-+
-+        if (u->voice_volume_call_mode) {
-+            /* Enable module-device-restore again now that we're back to !voicecall mode */
-+            pa_proplist_unset(u->sink->proplist, MODULE_DEVICE_RESTORE_SKIP_PROPERTY);
-+        }
-+
 +        if (u->sink_input_subscription) {
 +            pa_subscription_free(u->sink_input_subscription);
 +            u->sink_input_subscription = NULL;
@@ -1328,9 +1214,9 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +            pa_log_debug("Add extra route %s (%u).", dev_str, devices);
 +
-+            add_extra_devices(u, devices);
-+            /* post routing change */
-+            pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
++            /* if this device was not routed to previously post routing change */
++            if (add_extra_devices(u, devices))
++                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
 +        }
 +    }
 +
@@ -1359,9 +1245,9 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +            pa_log_debug("Remove extra route %s (%u).", dev_str, devices);
 +
-+            remove_extra_devices(u, devices);
-+            /* post routing change */
-+            pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
++            /* if this device no longer exists in extra devices map post routing change */
++            if (remove_extra_devices(u, devices))
++                pa_asyncmsgq_post(u->sink->asyncmsgq, PA_MSGOBJECT(u->sink), SINK_MESSAGE_DO_ROUTING, NULL, 0, NULL, NULL);
 +        }
 +    }
 +
@@ -1413,7 +1299,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +        if (changed) {
 +            pa_assert(parameter);
 +            tmp = pa_sprintf_malloc("%s=%s;", parameter->key, parameter->value);
-+            pa_log_debug("sink proplist changed: set_parameters(): %s", tmp);
++            pa_log_debug("set_parameters(): %s", tmp);
 +            pa_droid_hw_module_lock(u->hw_module);
 +            u->stream_out->common.set_parameters(&u->stream_out->common, tmp);
 +            pa_droid_hw_module_unlock(u->hw_module);
@@ -1422,25 +1308,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    }
 +
 +    return PA_HOOK_OK;
-+}
-+
-+static struct pa_sink *pa_sco_fake_sink_discover(pa_core *core, const char *sink_name) {
-+    struct pa_sink *sink;
-+    pa_idxset *idxset;
-+    void *state = NULL;
-+
-+    pa_assert(core);
-+    pa_assert(sink_name);
-+    pa_assert_se((idxset = core->sinks));
-+
-+    while ((sink = pa_idxset_iterate(idxset, &state, NULL)) != NULL) {
-+        if (pa_streq(sink_name, sink->name)) {
-+            pa_log_debug("Found fake SCO sink '%s'", sink_name);
-+            return sink;
-+        }
-+    }
-+
-+    return NULL;
 +}
 +
 +pa_sink *pa_droid_sink_new(pa_module *m,
@@ -1453,20 +1320,19 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    struct userdata *u = NULL;
 +    bool deferred_volume = false;
-+    bool voice_volume_call_mode = false;
-+    bool voice_virtual_stream = false;
 +    char *thread_name = NULL;
 +    pa_sink_new_data data;
 +    const char *module_id = NULL;
 +    const char *tmp;
-+    /* char *list = NULL; */
++    char *list = NULL;
 +    uint32_t alternate_sample_rate;
 +    uint32_t sample_rate;
++    const char *format;
 +    audio_devices_t dev_out;
 +    pa_sample_spec sample_spec;
 +    pa_channel_map channel_map;
 +    bool namereg_fail = false;
-+    uint32_t total_latency;
++    pa_usec_t latency;
 +    pa_droid_config_audio *config = NULL; /* Only used when sink is created without card */
 +    int32_t mute_routing_before = 0;
 +    int32_t mute_routing_after = 0;
@@ -1494,8 +1360,36 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    sample_spec = m->core->default_sample_spec;
 +    channel_map = m->core->default_channel_map;
 +
++    /* First parse both sample spec and channel map, then see if sink_* override some
++     * of the values. */
 +    if (pa_modargs_get_sample_spec_and_channel_map(ma, &sample_spec, &channel_map, PA_CHANNEL_MAP_AIFF) < 0) {
-+        pa_log("Failed to parse sample specification and channel map.");
++        pa_log("Failed to parse sink sample specification and channel map.");
++        goto fail;
++    }
++
++    if (pa_modargs_get_value(ma, "sink_channel_map", NULL)) {
++        if (pa_modargs_get_channel_map(ma, "sink_channel_map", &channel_map) < 0) {
++            pa_log("Failed to parse sink channel map.");
++            goto fail;
++        }
++
++        sample_spec.channels = channel_map.channels;
++    }
++
++    if ((format = pa_modargs_get_value(ma, "sink_format", NULL))) {
++        if ((sample_spec.format = pa_parse_sample_format(format)) < 0) {
++            pa_log("Failed to parse sink format.");
++            goto fail;
++        }
++    }
++
++    if (pa_modargs_get_value_u32(ma, "sink_rate", &sample_spec.rate) < 0) {
++        pa_log("Failed to parse sink samplerate");
++        goto fail;
++    }
++
++    if (!pa_sample_spec_valid(&sample_spec)) {
++        pa_log("Sample spec is not valid.");
 +        goto fail;
 +    }
 +
@@ -1520,16 +1414,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +        goto fail;
 +    }
 +
-+    if (pa_modargs_get_value_boolean(ma, "voice_volume_call_mode", &voice_volume_call_mode) < 0) {
-+        pa_log("Failed to parse voice_volume_call_mode. Needs to be a boolean argument.");
-+        goto fail;
-+    }
-+
-+    if (pa_modargs_get_value_boolean(ma, "voice_virtual_stream", &voice_virtual_stream) < 0) {
-+        pa_log("Failed to parse voice_virtual_stream. Needs to be a boolean argument.");
-+        goto fail;
-+    }
-+
 +    u = pa_xnew0(struct userdata, 1);
 +    u->core = m->core;
 +    u->module = m;
@@ -1537,12 +1421,11 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    u->deferred_volume = deferred_volume;
 +    u->rtpoll = pa_rtpoll_new();
 +    pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
-+    u->parameters = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) parameter_free);
-+    u->voice_volume_call_mode = voice_volume_call_mode;
-+    u->voice_virtual_stream = voice_virtual_stream;
++    u->parameters = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
++                                        NULL, (pa_free_cb_t) parameter_free);
 +    u->voice_property_key   = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_key", DEFAULT_VOICE_CONTROL_PROPERTY_KEY));
 +    u->voice_property_value = pa_xstrdup(pa_modargs_get_value(ma, "voice_property_value", DEFAULT_VOICE_CONTROL_PROPERTY_VALUE));
-+    u->sco_fake_sink_name = pa_xstrdup(pa_modargs_get_value(ma, "sco_fake_sink", DEFAULT_SCO_FAKE_SINK));
++    u->extra_devices_map = pa_hashmap_new(pa_idxset_trivial_hash_func, pa_idxset_trivial_compare_func);
 +
 +    if (card_data) {
 +        u->card_data = card_data;
@@ -1583,7 +1466,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    };
 +
 +    /* Default routing */
-+    dev_out = AUDIO_DEVICE_OUT_DEFAULT;
++    dev_out = u->hw_module->config->global_config.default_output_device;
 +
 +    if ((tmp = pa_modargs_get_value(ma, "output_devices", NULL))) {
 +        audio_devices_t tmp_dev;
@@ -1603,7 +1486,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +                                                   dev_out,
 +                                                   flags,
 +                                                   &config_out,
-+                                                   &u->stream_out);
++                                                   &u->stream_out
++#if DROID_HAL >= 3
++                                                   /* Go with empty address, should work
++                                                    * with most devices for now. */
++                                                   , NULL
++#endif
++                                                   );
 +    pa_droid_hw_module_unlock(u->hw_module);
 +
 +    if (!u->stream_out) {
@@ -1630,31 +1519,31 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +        }
 +    }
 +
-+    u->buffer_latency = pa_bytes_to_usec(u->buffer_size, &sample_spec);
-+    /* Disable internal rewinding for now. */
-+    u->buffer_count = 1;
++    u->buffer_time = pa_bytes_to_usec(u->buffer_size, &sample_spec);
 +
-+    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u",
++    pa_log_info("Created Android stream with device: %u flags: %u sample rate: %u channel mask: %u format: %u buffer size: %u (%llu usec)",
 +            dev_out,
 +            flags,
 +            sample_rate,
 +            config_out.channel_mask,
 +            config_out.format,
-+            u->buffer_size);
++            u->buffer_size,
++            u->buffer_time);
 +
 +
++    u->write_threshold = u->buffer_time - u->buffer_time / 6;
 +    u->mute_routing_before = mute_routing_before / u->buffer_size;
 +    u->mute_routing_after = mute_routing_after / u->buffer_size;
 +    if (u->mute_routing_before == 0 && mute_routing_before)
-+        u->mute_routing_before = u->buffer_size;
++        u->mute_routing_before = 1;
 +    if (u->mute_routing_after == 0 && mute_routing_after)
-+        u->mute_routing_after = u->buffer_size;
++        u->mute_routing_after = 1;
 +    if (u->mute_routing_before || u->mute_routing_after)
 +        pa_log_debug("Mute playback when routing is changing, %u before and %u after.",
 +                     u->mute_routing_before * u->buffer_size,
 +                     u->mute_routing_after * u->buffer_size);
 +    pa_silence_memchunk_get(&u->core->silence_cache, u->core->mempool, &u->silence, &sample_spec, u->buffer_size);
-+    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size * u->buffer_count, u->buffer_size * u->buffer_count, &sample_spec, 1, 0, 0, &u->silence);
++    u->memblockq = pa_memblockq_new("droid-sink", 0, u->buffer_size, u->buffer_size, &sample_spec, 1, 0, 0, &u->silence);
 +
 +    pa_sink_new_data_init(&data);
 +    data.driver = driver;
@@ -1663,7 +1552,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +
 +    set_sink_name(ma, &data, module_id);
 +    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_CLASS, "sound");
-+    pa_proplist_sets(data.proplist, PA_PROP_DEVICE_FORM_FACTOR, "internal");
 +
 +    /* We need to give pa_modargs_get_value_boolean() a pointer to a local
 +     * variable instead of using &data.namereg_fail directly, because
@@ -1722,7 +1610,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_sink_set_rtpoll(u->sink, u->rtpoll);
 +
 +    /* Rewind internal memblockq */
-+    pa_sink_set_max_rewind(u->sink, u->buffer_size * (u->buffer_count - 1));
++    pa_sink_set_max_rewind(u->sink, 0);
 +
 +    thread_name = pa_sprintf_malloc("droid-sink-%s", module_id);
 +    if (!(u->thread = pa_thread_new(thread_name, thread_func, u))) {
@@ -1732,11 +1620,11 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_xfree(thread_name);
 +    thread_name = NULL;
 +
-+    /* Latency consists of HAL latency + our memblockq latency */
-+    total_latency = u->stream_out->get_latency(u->stream_out) + (uint32_t) pa_bytes_to_usec(u->buffer_size * u->buffer_count, &sample_spec);
-+    pa_sink_set_fixed_latency(u->sink, total_latency);
-+    pa_log_debug("Set fixed latency %lu usec", (unsigned long) pa_bytes_to_usec(total_latency, &sample_spec));
-+    pa_sink_set_max_request(u->sink, u->buffer_size * u->buffer_count);
++    /* HAL latencies are in milliseconds. */
++    latency = u->stream_out->get_latency(u->stream_out) * PA_USEC_PER_MSEC;
++    pa_sink_set_fixed_latency(u->sink, latency);
++    pa_log_debug("Set fixed latency %llu usec", latency);
++    pa_sink_set_max_request(u->sink, u->buffer_size);
 +
 +    if (u->sink->active_port)
 +        sink_set_port_cb(u->sink, u->sink->active_port);
@@ -1775,6 +1663,14 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    pa_assert_se(u = s->userdata);
 +
 +    userdata_free(u);
++}
++
++static void parameter_free(droid_parameter_mapping *m) {
++    pa_assert(m);
++
++    pa_xfree(m->key);
++    pa_xfree(m->value);
++    pa_xfree(m);
 +}
 +
 +static void userdata_free(struct userdata *u) {
@@ -1822,13 +1718,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-sink.c
 +    if (u->hw_module)
 +        pa_droid_hw_module_unref(u->hw_module);
 +
-+    if (u->sco_fake_sink_name)
-+        pa_xfree(u->sco_fake_sink_name);
-+
 +    if (u->voice_property_key)
 +        pa_xfree(u->voice_property_key);
 +    if (u->voice_property_value)
 +        pa_xfree(u->voice_property_value);
++
++    if (u->extra_devices_map)
++        pa_hashmap_free(u->extra_devices_map);
 +
 +    pa_xfree(u);
 +}
@@ -1898,7 +1794,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-source.c
-@@ -0,0 +1,667 @@
+@@ -0,0 +1,787 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -1967,7 +1863,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +
 +    pa_memchunk memchunk;
 +    audio_devices_t primary_devices;
-+    audio_devices_t enabled_devices;
 +    bool routing_changes_enabled;
 +
 +    size_t buffer_size;
@@ -1980,52 +1875,91 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +
 +#define DEFAULT_MODULE_ID "primary"
 +
++#define DROID_AUDIO_SOURCE "droid.audio_source"
++#define DROID_AUDIO_SOURCE_UNDEFINED "undefined"
++
 +static void userdata_free(struct userdata *u);
 +
-+static bool do_routing(struct userdata *u, audio_devices_t devices) {
-+    char tmp[32];
++static int do_routing(struct userdata *u, audio_devices_t devices) {
++    int ret;
++    char *setparam;
 +    char *devlist;
++    pa_proplist *p;
++    const char *source_str;
++    audio_devices_t old_device;
++    audio_source_t source = (uint32_t) -1;
 +
 +    pa_assert(u);
 +    pa_assert(u->stream);
 +
 +    if (!u->routing_changes_enabled) {
 +        pa_log_debug("Skipping routing change.");
-+        return false;
++        return 0;
 +    }
 +
 +    if (u->primary_devices == devices)
 +        pa_log_debug("Refresh active device routing.");
 +
-+    u->enabled_devices &= ~u->primary_devices;
++    old_device = u->primary_devices;
 +    u->primary_devices = devices;
-+    u->enabled_devices |= u->primary_devices;
 +
 +    devlist = pa_list_string_input_device(devices);
 +    pa_assert(devlist);
++
 +#ifdef DROID_DEVICE_I9305
-+    pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices & ~AUDIO_DEVICE_BIT_IN);
-+#else
-+    pa_snprintf(tmp, sizeof(tmp), "%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
-+#endif
-+    pa_log_debug("set_parameters(): %s (%s : %#010x)", tmp, devlist, devices);
-+    pa_xfree(devlist);
-+#ifdef DROID_DEVICE_MAKO
-+#warning Using mako set_parameters hack.
-+    u->card_data->set_parameters(u->card_data, tmp);
-+#else
-+    u->stream->common.set_parameters(&u->stream->common, tmp);
++    devices &= ~AUDIO_DEVICE_BIT_IN;
 +#endif
 +
-+    return true;
++    if (pa_input_device_default_audio_source(devices, &source))
++#ifdef DROID_AUDIO_HAL_ATOI_FIX
++        setparam = pa_sprintf_malloc("%s=%d;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, (int32_t) devices,
++                                                    AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
++#else
++        setparam = pa_sprintf_malloc("%s=%u;%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices,
++                                                    AUDIO_PARAMETER_STREAM_INPUT_SOURCE, source);
++#endif
++    else
++        setparam = pa_sprintf_malloc("%s=%u", AUDIO_PARAMETER_STREAM_ROUTING, devices);
++
++    pa_log_debug("set_parameters(%s) %s : %#010x", setparam, devlist, devices);
++
++#if defined(DROID_DEVICE_MAKO) || defined(DROID_DEVICE_IYOKAN)
++#warning Using mako set_parameters hack.
++    ret = u->card_data->set_parameters(u->card_data, setparam);
++#else
++    ret = u->stream->common.set_parameters(&u->stream->common, setparam);
++#endif
++
++    if (ret < 0) {
++        if (ret == -ENOSYS)
++            pa_log_warn("set_parameters(%s) not allowed while stream is active", setparam);
++        else
++            pa_log_warn("set_parameters(%s) failed", setparam);
++        u->primary_devices = old_device;
++    } else {
++        if (source != (uint32_t) -1)
++            pa_assert_se(pa_droid_audio_source_name(source, &source_str));
++        else
++            source_str = DROID_AUDIO_SOURCE_UNDEFINED;
++
++        p = pa_proplist_new();
++        pa_proplist_sets(p, DROID_AUDIO_SOURCE, source_str);
++        pa_source_update_proplist(u->source, PA_UPDATE_REPLACE, p);
++        pa_proplist_free(p);
++    }
++
++    pa_xfree(devlist);
++    pa_xfree(setparam);
++
++    return ret;
 +}
 +
 +static bool parse_device_list(const char *str, audio_devices_t *dst) {
-+    char *dev;
-+    const char *state = NULL;
-+
 +    pa_assert(str);
 +    pa_assert(dst);
++
++    char *dev;
++    const char *state = NULL;
 +
 +    *dst = 0;
 +
@@ -2080,6 +2014,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    struct userdata *u = userdata;
 +
 +    pa_assert(u);
++    pa_assert(u->stream);
 +
 +    pa_log_debug("Thread starting up.");
 +
@@ -2089,6 +2024,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    pa_thread_mq_install(&u->thread_mq);
 +
 +    u->timestamp = pa_rtclock_now();
++
++    u->stream->common.standby(&u->stream->common);
 +
 +    for (;;) {
 +        int ret;
@@ -2101,7 +2038,11 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +            pa_rtpoll_set_timer_disabled(u->rtpoll);
 +
 +        /* Sleep */
++#if (PULSEAUDIO_VERSION == 5)
++        if ((ret = pa_rtpoll_run(u->rtpoll, true)) < 0)
++#elif (PULSEAUDIO_VERSION == 6)
 +        if ((ret = pa_rtpoll_run(u->rtpoll)) < 0)
++#endif
 +            goto fail;
 +
 +        if (ret == 0)
@@ -2160,8 +2101,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +                    break;
 +                }
 +
++                case PA_SOURCE_UNLINKED: {
++                    /* Suspending since some implementations do not want to free running stream. */
++                    suspend(u);
++                    break;
++                }
++
 +                /* not needed */
-+                case PA_SOURCE_UNLINKED:
 +                case PA_SOURCE_INIT:
 +                case PA_SOURCE_INVALID_STATE:
 +                    ;
@@ -2192,11 +2138,26 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +
 +    pa_log_debug("Source set port %u", data->device);
 +
-+    do_routing(u, data->device);
-+
-+    return 0;
++    return do_routing(u, data->device);
 +}
 +
++static void source_set_voicecall_source_port(struct userdata *u) {
++    pa_device_port *port;
++    pa_droid_port_data *data;
++    void *state;
++
++    pa_assert(u);
++    pa_assert(u->source);
++
++    PA_HASHMAP_FOREACH(port, u->source->ports, state) {
++        data = PA_DEVICE_PORT_DATA(port);
++
++        if (data->device & AUDIO_DEVICE_IN_VOICE_CALL) {
++            pa_source_set_port(u->source, port->name, false);
++            break;
++        }
++    }
++}
 +
 +static void source_set_name(pa_modargs *ma, pa_source_new_data *data, const char *module_id) {
 +    const char *tmp;
@@ -2219,8 +2180,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    }
 +}
 +
++#if (PULSEAUDIO_VERSION == 5)
 +static void source_get_mute_cb(pa_source *s) {
++#elif (PULSEAUDIO_VERSION == 6)
++static int source_get_mute_cb(pa_source *s, bool *muted) {
++#endif
 +    struct userdata *u = s->userdata;
++    int ret = 0;
 +    bool b;
 +
 +    pa_assert(u);
@@ -2229,12 +2195,19 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    pa_droid_hw_module_lock(u->hw_module);
 +    if (u->hw_module->device->get_mic_mute(u->hw_module->device, &b) < 0) {
 +        pa_log("Failed to get mute state.");
-+        pa_droid_hw_module_unlock(u->hw_module);
-+        return;
++        ret = -1;
 +    }
 +    pa_droid_hw_module_unlock(u->hw_module);
 +
-+    s->muted = b;
++#if (PULSEAUDIO_VERSION == 5)
++    if (ret == 0)
++        s->muted = b;
++#elif (PULSEAUDIO_VERSION == 6)
++    if (ret == 0)
++        *muted = b;
++
++    return ret;
++#endif
 +}
 +
 +static void source_set_mute_cb(pa_source *s) {
@@ -2278,6 +2251,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +pa_source *pa_droid_source_new(pa_module *m,
 +                                 pa_modargs *ma,
 +                                 const char *driver,
++                                 audio_devices_t device,
 +                                 pa_droid_card_data *card_data,
 +                                 pa_droid_mapping *am,
 +                                 pa_card *card) {
@@ -2286,16 +2260,17 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    char *thread_name = NULL;
 +    pa_source_new_data data;
 +    const char *module_id = NULL;
-+    /* const char *tmp; */
++    const char *tmp;
 +    uint32_t sample_rate;
 +    uint32_t alternate_sample_rate;
 +    audio_devices_t dev_in;
 +    pa_sample_spec sample_spec;
 +    pa_channel_map channel_map;
++    const char *format;
 +    bool namereg_fail = false;
 +    pa_droid_config_audio *config = NULL; /* Only used when source is created without card */
 +    uint32_t source_buffer = 0;
-+    char audio_source[32];
++    bool voicecall_source = false;
 +    int ret;
 +
 +    audio_format_t hal_audio_format = 0;
@@ -2306,7 +2281,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    pa_assert(driver);
 +
 +    /* When running under card use hw module name for source by default. */
-+    if (card && ma)
++    if (am)
 +        module_id = am->input->module->name;
 +    else
 +        module_id = pa_modargs_get_value(ma, "module_id", DEFAULT_MODULE_ID);
@@ -2314,8 +2289,41 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    sample_spec = m->core->default_sample_spec;
 +    channel_map = m->core->default_channel_map;
 +
++    if (device & AUDIO_DEVICE_IN_VOICE_CALL) {
++        pa_log_info("Enabling voice call record source. Most module arguments are overridden.");
++        voicecall_source = true;
++    }
++
++    /* First parse both sample spec and channel map, then see if source_* override some
++     * of the values. */
 +    if (pa_modargs_get_sample_spec_and_channel_map(ma, &sample_spec, &channel_map, PA_CHANNEL_MAP_AIFF) < 0) {
-+        pa_log("Failed to parse sample specification and channel map.");
++        pa_log("Failed to parse source sample specification and channel map.");
++        goto fail;
++    }
++
++    if (pa_modargs_get_value(ma, "source_channel_map", NULL)) {
++        if (pa_modargs_get_channel_map(ma, "source_channel_map", &channel_map) < 0) {
++            pa_log("Failed to parse source channel map.");
++            goto fail;
++        }
++
++        sample_spec.channels = channel_map.channels;
++    }
++
++    if ((format = pa_modargs_get_value(ma, "source_format", NULL))) {
++        if ((sample_spec.format = pa_parse_sample_format(format)) < 0) {
++            pa_log("Failed to parse source format.");
++            goto fail;
++        }
++    }
++
++    if (pa_modargs_get_value_u32(ma, "source_rate", &sample_spec.rate) < 0) {
++        pa_log("Failed to parse source_rate.");
++        goto fail;
++    }
++
++    if (!pa_sample_spec_valid(&sample_spec)) {
++        pa_log("Sample spec is not valid.");
 +        goto fail;
 +    }
 +
@@ -2337,8 +2345,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    u->rtpoll = pa_rtpoll_new();
 +    pa_thread_mq_init(&u->thread_mq, m->core->mainloop, u->rtpoll);
 +
-+    /* Enabled routing changes by default. */
-+    u->routing_changes_enabled = true;
++    /* Enabled routing changes by default, except for voicecall source. */
++    u->routing_changes_enabled = voicecall_source ? false : true;
 +
 +    if (card_data) {
 +        pa_assert(card);
@@ -2347,12 +2355,14 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    } else {
 +        /* Stand-alone source */
 +
-+        if (!(config = pa_droid_config_load(ma)))
-+            goto fail;
++        if (!(u->hw_module = pa_droid_hw_module_get(u->core, NULL, module_id))) {
++            if (!(config = pa_droid_config_load(ma)))
++                goto fail;
 +
-+        /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
-+        if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
-+            goto fail;
++            /* Ownership of config transfers to hw_module if opening of hw module succeeds. */
++            if (!(u->hw_module = pa_droid_hw_module_get(u->core, config, module_id)))
++                goto fail;
++        }
 +    }
 +
 +    if (!pa_convert_format(sample_spec.format, CONV_FROM_PA, &hal_audio_format)) {
@@ -2369,6 +2379,17 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +        hal_channel_mask |= c;
 +    }
 +
++    if (voicecall_source) {
++        pa_channel_map_init_mono(&channel_map);
++        sample_spec.channels = 1;
++        /* Only allow recording both downlink and uplink. */
++#ifdef QCOM_HARDWARE
++        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_CALL_MONO;
++#else
++        hal_channel_mask = AUDIO_CHANNEL_IN_VOICE_UPLINK | AUDIO_CHANNEL_IN_VOICE_DNLINK;
++#endif
++    }
++
 +    struct audio_config config_in = {
 +        .sample_rate = sample_spec.rate,
 +        .channel_mask = hal_channel_mask,
@@ -2376,44 +2397,40 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    };
 +
 +    /* Default routing */
-+    /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
-+     * requires HALv2 style device to work properly. So until that oddity is resolved we always
-+     * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
-+#if 0
-+    pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
++    if (device)
++        dev_in = device;
++    else {
++        /* FIXME So while setting routing through stream with HALv2 API fails, creation of stream
++         * requires HALv2 style device to work properly. So until that oddity is resolved we always
++         * set AUDIO_DEVICE_IN_BUILTIN_MIC as initial device here. */
++        pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
++        pa_assert_se(pa_string_convert_input_device_str_to_num("AUDIO_DEVICE_IN_BUILTIN_MIC", &dev_in));
 +
-+    if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
-+        audio_devices_t tmp_dev;
++        if ((tmp = pa_modargs_get_value(ma, "input_devices", NULL))) {
++            audio_devices_t tmp_dev;
 +
-+        if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
-+            dev_in = tmp_dev;
++            if (parse_device_list(tmp, &tmp_dev) && tmp_dev)
++                dev_in = tmp_dev;
 +
-+        pa_log_debug("Set initial devices %s", tmp);
++            pa_log_debug("Set initial devices %s", tmp);
++        }
 +    }
-+#else
-+    pa_log_info("FIXME: Setting AUDIO_DEVICE_IN_BUILTIN_MIC as initial device.");
-+    dev_in = AUDIO_DEVICE_IN_BUILTIN_MIC;
-+#endif
++
 +    pa_droid_hw_module_lock(u->hw_module);
 +    ret = u->hw_module->device->open_input_stream(u->hw_module->device,
-+                                                  u->hw_module->stream_in_id,
++                                                  u->hw_module->stream_in_id++,
 +                                                  dev_in,
 +                                                  &config_in,
-+                                                  &u->stream);
-+    /* On some devices the first call will fail if the config parameters are
-+     * not supported, but it'll automatically set the right ones, expecting
-+     * the caller to call it again, so let's try at least one more time */
-+    if (!u->stream)
-+        ret = u->hw_module->device->open_input_stream(u->hw_module->device,
-+                                                      u->hw_module->stream_in_id,
-+                                                      dev_in,
-+                                                      &config_in,
-+                                                      &u->stream);
-+
-+    u->hw_module->stream_in_id++;
++                                                  &u->stream
++#if DROID_HAL >= 3
++                                                  , AUDIO_INPUT_FLAG_NONE   /* Default to no input flags */
++                                                  , NULL                    /* Don't define address */
++                                                  , AUDIO_SOURCE_DEFAULT    /* Default audio source */
++#endif
++                                                  );
 +    pa_droid_hw_module_unlock(u->hw_module);
 +
-+    if (ret < 0) {
++    if (ret < 0 || !u->stream) {
 +        pa_log("Failed to open input stream.");
 +        goto fail;
 +    }
@@ -2444,10 +2461,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +            config_in.format,
 +            u->buffer_size);
 +
-+    /* Setting audio source to MIC by default */
-+    pa_snprintf(audio_source, sizeof(audio_source), "%s=%u", AUDIO_PARAMETER_STREAM_INPUT_SOURCE, AUDIO_SOURCE_MIC);
-+    u->stream->common.set_parameters(&u->stream->common, audio_source);
-+    pa_log_debug("Setting audio source to AUDIO_SOURCE_MIC by default");
 +
 +    pa_source_new_data_init(&data);
 +    data.driver = driver;
@@ -2472,7 +2485,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    pa_source_new_data_set_channel_map(&data, &channel_map);
 +    pa_source_new_data_set_alternate_sample_rate(&data, alternate_sample_rate);
 +
-+    if (am)
++    if (am && card)
 +        pa_droid_add_ports(data.ports, am, card);
 +
 +    u->source = pa_source_new(m->core, &data, PA_SOURCE_HARDWARE);
@@ -2508,8 +2521,11 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.c
 +    pa_source_set_fixed_latency(u->source, pa_bytes_to_usec(u->buffer_size, &sample_spec));
 +    pa_log_debug("Set fixed latency %" PRIu64 " usec", pa_bytes_to_usec(u->buffer_size, &sample_spec));
 +
-+    if (u->source->active_port)
++    if (!voicecall_source && u->source->active_port)
 +        source_set_port_cb(u->source, u->source->active_port);
++
++    if (voicecall_source)
++        source_set_voicecall_source_port(u);
 +
 +    pa_source_put(u->source);
 +
@@ -2570,7 +2586,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.h
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-source.h
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,58 @@
 +#ifndef foodroidsourcefoo
 +#define foodroidsourcefoo
 +
@@ -2616,9 +2632,11 @@ Index: pulseaudio-6.0/src/modules/droid/droid-source.h
 +
 +#include "droid-util.h"
 +
++/* If device is non-zero, it will override whatever is set in modargs for input device. */
 +pa_source *pa_droid_source_new(pa_module *m,
 +                                 pa_modargs *ma,
 +                                 const char *driver,
++                                 audio_devices_t device,
 +                                 pa_droid_card_data *card_data,
 +                                 pa_droid_mapping *am,
 +                                 pa_card *card);
@@ -2631,7 +2649,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,301 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -2656,9 +2674,18 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +#ifndef _ANDROID_UTIL_V412_H_
 +#define _ANDROID_UTIL_V412_H_
 +
++#define DROID_HAL 1
++
++#ifdef DROID_DEVICE_SBJ
++#define QCOM_HARDWARE
++#endif
++
++#include <hardware/audio.h>
++#include <hardware_legacy/audio_policy_conf.h>
++
 +// PulseAudio value    -    Android value
 +
-+static uint32_t conversion_table_output_channel[][2] = {
++uint32_t conversion_table_output_channel[][2] = {
 +    { PA_CHANNEL_POSITION_MONO,                     AUDIO_CHANNEL_OUT_MONO },
 +    { PA_CHANNEL_POSITION_FRONT_LEFT,               AUDIO_CHANNEL_OUT_FRONT_LEFT },
 +    { PA_CHANNEL_POSITION_FRONT_RIGHT,              AUDIO_CHANNEL_OUT_FRONT_RIGHT},
@@ -2680,7 +2707,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +    { PA_CHANNEL_POSITION_TOP_REAR_RIGHT,           AUDIO_CHANNEL_OUT_TOP_BACK_RIGHT }
 +};
 +
-+static uint32_t conversion_table_input_channel[][2] = {
++uint32_t conversion_table_input_channel[][2] = {
 +    { PA_CHANNEL_POSITION_MONO,                     AUDIO_CHANNEL_IN_MONO },
 +    { PA_CHANNEL_POSITION_FRONT_LEFT,               AUDIO_CHANNEL_IN_LEFT },
 +    { PA_CHANNEL_POSITION_FRONT_RIGHT,              AUDIO_CHANNEL_IN_RIGHT},
@@ -2699,11 +2726,15 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +    { AUDIO_CHANNEL_IN_VOICE_DNLINK,                AUDIO_CHANNEL_IN_VOICE_DNLINK }
 +};
 +
-+static uint32_t conversion_table_format[][2] = {
++uint32_t conversion_table_format[][2] = {
 +    { PA_SAMPLE_U8,             AUDIO_FORMAT_PCM_8_BIT },
 +    { PA_SAMPLE_S16LE,          AUDIO_FORMAT_PCM_16_BIT },
 +    { PA_SAMPLE_S32LE,          AUDIO_FORMAT_PCM_32_BIT },
 +    { PA_SAMPLE_S24LE,          AUDIO_FORMAT_PCM_8_24_BIT }
++};
++
++uint32_t conversion_table_default_audio_source[][2] = {
++    { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
 +};
 +
 +struct string_conversion {
@@ -2716,7 +2747,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +#endif
 +#define STRING_ENTRY(str) { str, #str }
 +/* Output devices */
-+static struct string_conversion string_conversion_table_output_device[] = {
++struct string_conversion string_conversion_table_output_device[] = {
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_EARPIECE),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_SPEAKER),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_WIRED_HEADSET),
@@ -2744,7 +2775,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +    { 0, NULL }
 +};
 +
-+static struct string_conversion string_conversion_table_output_device_fancy[] = {
++struct string_conversion string_conversion_table_output_device_fancy[] = {
 +    { AUDIO_DEVICE_OUT_EARPIECE,                    "output-earpiece" },
 +    { AUDIO_DEVICE_OUT_SPEAKER,                     "output-speaker" },
 +    { AUDIO_DEVICE_OUT_SPEAKER
@@ -2771,7 +2802,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +};
 +
 +/* Input devices */
-+static struct string_conversion string_conversion_table_input_device[] = {
++struct string_conversion string_conversion_table_input_device[] = {
 +    STRING_ENTRY(AUDIO_DEVICE_IN_COMMUNICATION),
 +    STRING_ENTRY(AUDIO_DEVICE_IN_AMBIENT),
 +    STRING_ENTRY(AUDIO_DEVICE_IN_BUILTIN_MIC),
@@ -2787,8 +2818,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +    { 0, NULL }
 +};
 +
-+static struct string_conversion string_conversion_table_input_device_fancy[] = {
-+    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-in_communication" },
++struct string_conversion string_conversion_table_input_device_fancy[] = {
++    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-communication" },
 +    { AUDIO_DEVICE_IN_AMBIENT,                  "input-ambient" },
 +    { AUDIO_DEVICE_IN_BUILTIN_MIC,              "input-builtin_mic" },
 +    { AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET,    "input-bluetooth_sco_headset" },
@@ -2803,8 +2834,22 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +    { 0, NULL }
 +};
 +
++struct string_conversion string_conversion_table_audio_source_fancy[] = {
++    { AUDIO_SOURCE_DEFAULT,                         "default" },
++    { AUDIO_SOURCE_MIC,                             "mic" },
++    { AUDIO_SOURCE_VOICE_UPLINK,                    "voice uplink" },
++    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downlink" },
++    { AUDIO_SOURCE_VOICE_CALL,                      "voice call" },
++    { AUDIO_SOURCE_CAMCORDER,                       "camcorder" },
++    { AUDIO_SOURCE_VOICE_RECOGNITION,               "voice recognition" },
++    { AUDIO_SOURCE_VOICE_COMMUNICATION,             "voice communication" },
++    { AUDIO_SOURCE_FM_RX,                           "fm rx" },
++    { AUDIO_SOURCE_FM_RX_A2DP,                      "fm rx a2dp" },
++    { (uint32_t)-1, NULL }
++};
++
 +/* Flags */
-+static struct string_conversion string_conversion_table_flag[] = {
++struct string_conversion string_conversion_table_output_flag[] = {
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_DIRECT),
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),
@@ -2818,7 +2863,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +};
 +
 +/* Channels */
-+static struct string_conversion string_conversion_table_output_channels[] = {
++struct string_conversion string_conversion_table_output_channels[] = {
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_LEFT),
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_RIGHT),
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_CENTER),
@@ -2846,7 +2891,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_ALL),
 +    { 0, NULL }
 +};
-+static struct string_conversion string_conversion_table_input_channels[] = {
++struct string_conversion string_conversion_table_input_channels[] = {
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_LEFT),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_RIGHT),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT),
@@ -2872,7 +2917,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-41qc.h
 +};
 +
 +/* Formats */
-+static struct string_conversion string_conversion_table_format[] = {
++struct string_conversion string_conversion_table_format[] = {
 +    STRING_ENTRY(AUDIO_FORMAT_DEFAULT),
 +    STRING_ENTRY(AUDIO_FORMAT_PCM),
 +    STRING_ENTRY(AUDIO_FORMAT_MP3),
@@ -2910,7 +2955,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-util-42.h
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,299 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -2935,11 +2980,14 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +#ifndef _ANDROID_UTIL_V42_H_
 +#define _ANDROID_UTIL_V42_H_
 +
-+#define HAL_V2
++#define DROID_HAL 2
++
++#include <hardware/audio.h>
++#include <hardware_legacy/audio_policy_conf.h>
 +
 +// PulseAudio value    -    Android value
 +
-+static uint32_t conversion_table_output_channel[][2] = {
++uint32_t conversion_table_output_channel[][2] = {
 +    { PA_CHANNEL_POSITION_MONO,                     AUDIO_CHANNEL_OUT_MONO },
 +    { PA_CHANNEL_POSITION_FRONT_LEFT,               AUDIO_CHANNEL_OUT_FRONT_LEFT },
 +    { PA_CHANNEL_POSITION_FRONT_RIGHT,              AUDIO_CHANNEL_OUT_FRONT_RIGHT},
@@ -2961,7 +3009,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    { PA_CHANNEL_POSITION_TOP_REAR_RIGHT,           AUDIO_CHANNEL_OUT_TOP_BACK_RIGHT }
 +};
 +
-+static uint32_t conversion_table_input_channel[][2] = {
++uint32_t conversion_table_input_channel[][2] = {
 +    { PA_CHANNEL_POSITION_MONO,                     AUDIO_CHANNEL_IN_MONO },
 +    { PA_CHANNEL_POSITION_FRONT_LEFT,               AUDIO_CHANNEL_IN_LEFT },
 +    { PA_CHANNEL_POSITION_FRONT_RIGHT,              AUDIO_CHANNEL_IN_RIGHT},
@@ -2980,11 +3028,15 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    { AUDIO_CHANNEL_IN_VOICE_DNLINK,                AUDIO_CHANNEL_IN_VOICE_DNLINK }
 +};
 +
-+static uint32_t conversion_table_format[][2] = {
++uint32_t conversion_table_format[][2] = {
 +    { PA_SAMPLE_U8,             AUDIO_FORMAT_PCM_8_BIT },
 +    { PA_SAMPLE_S16LE,          AUDIO_FORMAT_PCM_16_BIT },
 +    { PA_SAMPLE_S32LE,          AUDIO_FORMAT_PCM_32_BIT },
 +    { PA_SAMPLE_S24LE,          AUDIO_FORMAT_PCM_8_24_BIT }
++};
++
++uint32_t conversion_table_default_audio_source[][2] = {
++    { AUDIO_DEVICE_IN_ALL,                          AUDIO_SOURCE_DEFAULT }
 +};
 +
 +struct string_conversion {
@@ -2997,7 +3049,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +#endif
 +#define STRING_ENTRY(str) { str, #str }
 +/* Output devices */
-+static struct string_conversion string_conversion_table_output_device[] = {
++struct string_conversion string_conversion_table_output_device[] = {
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_EARPIECE),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_SPEAKER),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_WIRED_HEADSET),
@@ -3014,12 +3066,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_USB_ACCESSORY),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_USB_DEVICE),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_REMOTE_SUBMIX),
-+    STRING_ENTRY(AUDIO_DEVICE_OUT_ANC_HEADSET),
-+    STRING_ENTRY(AUDIO_DEVICE_OUT_ANC_HEADPHONE),
-+    STRING_ENTRY(AUDIO_DEVICE_OUT_PROXY),
-+    STRING_ENTRY(AUDIO_DEVICE_OUT_FM),
-+    STRING_ENTRY(AUDIO_DEVICE_OUT_FM_TX),
-+    STRING_ENTRY(AUDIO_DEVICE_OUT_SPDIF),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_DEFAULT),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_ALL),
 +    STRING_ENTRY(AUDIO_DEVICE_OUT_ALL_A2DP),
@@ -3028,7 +3074,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    { 0, NULL }
 +};
 +
-+static struct string_conversion string_conversion_table_output_device_fancy[] = {
++struct string_conversion string_conversion_table_output_device_fancy[] = {
 +    { AUDIO_DEVICE_OUT_EARPIECE,                    "output-earpiece" },
 +    { AUDIO_DEVICE_OUT_SPEAKER,                     "output-speaker" },
 +    { AUDIO_DEVICE_OUT_SPEAKER
@@ -3047,17 +3093,39 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    { AUDIO_DEVICE_OUT_USB_ACCESSORY,               "output-usb_accessory" },
 +    { AUDIO_DEVICE_OUT_USB_DEVICE,                  "output-usb_device" },
 +    { AUDIO_DEVICE_OUT_REMOTE_SUBMIX,               "output-remote_submix" },
-+    { AUDIO_DEVICE_OUT_ANC_HEADSET,                 "output-anc_headset" },
-+    { AUDIO_DEVICE_OUT_ANC_HEADPHONE,               "output-anc_headphone" },
-+    { AUDIO_DEVICE_OUT_PROXY,                       "output-proxy" },
-+    { AUDIO_DEVICE_OUT_FM,                          "output-fm" },
-+    { AUDIO_DEVICE_OUT_FM_TX,                       "output-fm_tx" },
-+    { AUDIO_DEVICE_OUT_SPDIF,                       "output-spdif" },
 +    { 0, NULL }
 +};
 +
 +/* Input devices */
-+static struct string_conversion string_conversion_table_input_device[] = {
++#ifdef DROID_DEVICE_MAKO
++struct string_conversion string_conversion_table_input_device[] = {
++    { 0x10000,      "AUDIO_DEVICE_IN_COMMUNICATION" },
++    { 0x20000,      "AUDIO_DEVICE_IN_AMBIENT" },
++    { 0x40000,      "AUDIO_DEVICE_IN_BUILTIN_MIC" },
++    { 0x80000,      "AUDIO_DEVICE_IN_BLUETOOTH_SCO_HEADSET" },
++    { 0x100000,     "AUDIO_DEVICE_IN_WIRED_HEADSET" },
++    { 0x200000,     "AUDIO_DEVICE_IN_AUX_DIGITAL" },
++    { 0x400000,     "AUDIO_DEVICE_IN_VOICE_CALL" },
++    { 0x800000,     "AUDIO_DEVICE_IN_BACK_MIC" },
++    { 0x80000000,   "AUDIO_DEVICE_IN_DEFAULT" },
++    { 0x80000000,   "AUDIO_DEVICE_IN_REMOTE_SUBMIX" }, // What's this really??
++    { 0, NULL }
++};
++
++struct string_conversion string_conversion_table_input_device_fancy[] = {
++    { 0x10000,      "input-communication" },
++    { 0x20000,      "input-ambient" },
++    { 0x40000,      "input-builtin_mic" },
++    { 0x80000,      "input-bluetooth_sco_headset" },
++    { 0x100000,     "input-wired_headset" },
++    { 0x200000,     "input-aux_digital" },
++    { 0x400000,     "input-voice_call" },
++    { 0x800000,     "input-back_mic" },
++    { 0x80000000,   "input-remote_submix" },
++    { 0, NULL }
++};
++#else
++struct string_conversion string_conversion_table_input_device[] = {
 +    STRING_ENTRY(AUDIO_DEVICE_IN_COMMUNICATION),
 +    STRING_ENTRY(AUDIO_DEVICE_IN_AMBIENT),
 +    STRING_ENTRY(AUDIO_DEVICE_IN_BUILTIN_MIC),
@@ -3071,19 +3139,10 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    STRING_ENTRY(AUDIO_DEVICE_IN_DGTL_DOCK_HEADSET),
 +    STRING_ENTRY(AUDIO_DEVICE_IN_USB_ACCESSORY),
 +    STRING_ENTRY(AUDIO_DEVICE_IN_USB_DEVICE),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_ANC_HEADSET),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_PROXY),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_FM_RX_A2DP),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_FM),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_MATV),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_AUX_DIGITAL2),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_ALL_SCO),
-+    STRING_ENTRY(AUDIO_DEVICE_IN_DEFAULT),
 +    { 0, NULL }
 +};
 +
-+static struct string_conversion string_conversion_table_input_device_fancy[] = {
++struct string_conversion string_conversion_table_input_device_fancy[] = {
 +    { AUDIO_DEVICE_IN_COMMUNICATION,            "input-communication" },
 +    { AUDIO_DEVICE_IN_AMBIENT,                  "input-ambient" },
 +    { AUDIO_DEVICE_IN_BUILTIN_MIC,              "input-builtin_mic" },
@@ -3093,30 +3152,39 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    { AUDIO_DEVICE_IN_VOICE_CALL,               "input-voice_call" },
 +    { AUDIO_DEVICE_IN_BACK_MIC,                 "input-back_mic" },
 +    { AUDIO_DEVICE_IN_REMOTE_SUBMIX,            "input-remote_submix" },
-+    { AUDIO_DEVICE_IN_ANC_HEADSET,              "input-anc_headset" },
-+    { AUDIO_DEVICE_IN_PROXY,                    "input-proxy" },
-+    { AUDIO_DEVICE_IN_FM_RX,                    "input-fm_rx" },
-+    { AUDIO_DEVICE_IN_FM_RX_A2DP,               "input-fm_rx_a2dp" },
-+    { AUDIO_DEVICE_IN_FM,                       "input-fm" },
-+    { AUDIO_DEVICE_IN_MATV,                     "input-matv" },
-+    { AUDIO_DEVICE_IN_AUX_DIGITAL2,             "input-aux_digital2" },
 +    { 0, NULL }
++};
++#endif
++
++struct string_conversion string_conversion_table_audio_source_fancy[] = {
++    { AUDIO_SOURCE_DEFAULT,                         "default" },
++    { AUDIO_SOURCE_MIC,                             "mic" },
++    { AUDIO_SOURCE_VOICE_UPLINK,                    "voice uplink" },
++    { AUDIO_SOURCE_VOICE_DOWNLINK,                  "voice downlink" },
++    { AUDIO_SOURCE_VOICE_CALL,                      "voice call" },
++    { AUDIO_SOURCE_CAMCORDER,                       "camcorder" },
++    { AUDIO_SOURCE_VOICE_RECOGNITION,               "voice recognition" },
++    { AUDIO_SOURCE_VOICE_COMMUNICATION,             "voice communication" },
++    { AUDIO_SOURCE_REMOTE_SUBMIX,                   "remote submix" },
++#ifdef QCOM_HARDWARE
++    { AUDIO_SOURCE_FM_RX,                           "fm rx" },
++    { AUDIO_SOURCE_FM_RX_A2DP,                      "fm rx a2dp" },
++#endif
++    { (uint32_t)-1, NULL }
 +};
 +
 +/* Flags */
-+static struct string_conversion string_conversion_table_flag[] = {
++struct string_conversion string_conversion_table_output_flag[] = {
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_NONE),
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_DIRECT),
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_PRIMARY),
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_FAST),
 +    STRING_ENTRY(AUDIO_OUTPUT_FLAG_DEEP_BUFFER),
-+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD),
-+    STRING_ENTRY(AUDIO_OUTPUT_FLAG_NON_BLOCKING),
 +    { 0, NULL }
 +};
 +
 +/* Channels */
-+static struct string_conversion string_conversion_table_output_channels[] = {
++struct string_conversion string_conversion_table_output_channels[] = {
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_LEFT),
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_RIGHT),
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_FRONT_CENTER),
@@ -3144,7 +3212,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    STRING_ENTRY(AUDIO_CHANNEL_OUT_ALL),
 +    { 0, NULL }
 +};
-+static struct string_conversion string_conversion_table_input_channels[] = {
++struct string_conversion string_conversion_table_input_channels[] = {
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_LEFT),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_RIGHT),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT),
@@ -3161,13 +3229,12 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_VOICE_DNLINK),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_MONO),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_STEREO),
-+    STRING_ENTRY(AUDIO_CHANNEL_IN_FRONT_BACK),
 +    STRING_ENTRY(AUDIO_CHANNEL_IN_ALL),
 +    { 0, NULL }
 +};
 +
 +/* Formats */
-+static struct string_conversion string_conversion_table_format[] = {
++struct string_conversion string_conversion_table_format[] = {
 +    STRING_ENTRY(AUDIO_FORMAT_DEFAULT),
 +    STRING_ENTRY(AUDIO_FORMAT_PCM),
 +    STRING_ENTRY(AUDIO_FORMAT_MP3),
@@ -3187,21 +3254,12 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util-42.h
 +};
 +#undef STRING_ENTRY
 +
-+/* Ports with availability option (for port/jack detection) */
-+static const char* port_availability[] = {
-+    "output-wired_headset",
-+    "output-wired_headphone",
-+    "input-wired_headset",
-+    NULL
-+};
-+
-+
 +#endif
 Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-util.c
-@@ -0,0 +1,1189 @@
+@@ -0,0 +1,1310 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -3259,24 +3317,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +#include <pulsecore/shared.h>
 +#include <pulsecore/mutex.h>
 +
-+#include <hardware/audio.h>
-+#include <hardware_legacy/audio_policy_conf.h>
-+
 +#include "droid-util.h"
-+
-+#include <android-version.h>
-+
-+#ifndef ANDROID_VERSION_MAJOR
-+#error "ANDROID_VERSION_* not defined."
-+#endif
-+
-+#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
-+#include "droid-util-41qc.h"
-+#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR >= 2
-+#include "droid-util-42.h"
-+#else
-+#error "No valid ANDROID_VERSION found."
-+#endif
 +
 +#define CONVERT_FUNC(TABL) \
 +bool pa_convert_ ## TABL (uint32_t value, pa_conversion_field_t field, uint32_t *to_value) {                    \
@@ -3298,11 +3339,14 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +
 +#define DEFAULT_PRIORITY (100)
 +
++/* Section defining custom global configuration variables. */
++#define GLOBAL_CONFIG_EXT_TAG "custom_properties"
++
++static void droid_port_free(pa_droid_port *p);
++
 +static bool string_convert_num_to_str(const struct string_conversion *list, const uint32_t value, const char **to_str) {
 +    pa_assert(list);
 +    pa_assert(to_str);
-+
-+    pa_log_debug("Trying to convert %x to string.", value);
 +
 +    for (unsigned int i = 0; list[i].str; i++) {
 +        if (list[i].value == value) {
@@ -3318,8 +3362,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    pa_assert(str);
 +    pa_assert(to_value);
 +
-+    pa_log_debug("Trying to convert %s to num.", str);
-+
 +    for (unsigned int i = 0; list[i].str; i++) {
 +        if (pa_streq(list[i].str, str)) {
 +            *to_value = list[i].value;
@@ -3329,31 +3371,17 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    return false;
 +}
 +
-+static bool check_port_availability(const char *port) {
-+    pa_assert(port);
-+
-+    pa_log_debug("Checking availability for port '%s'", port);
-+
-+    for (unsigned int i = 0; port_availability[i]; i++) {
-+        if (pa_streq(port_availability[i], port)) {
-+            return true;
-+        }
-+    }
-+
-+    return false;
-+}
-+
 +static char *list_string(struct string_conversion *list, uint32_t flags) {
 +    char *str = NULL;
 +    char *tmp;
 +
-+#ifdef HAL_V2
++#if DROID_HAL >= 2
 +    if (flags & AUDIO_DEVICE_BIT_IN)
 +        flags &= ~AUDIO_DEVICE_BIT_IN;
 +#endif
 +
 +    for (unsigned int i = 0; list[i].str; i++) {
-+#ifdef HAL_V2
++#if DROID_HAL >= 2
 +        if (list[i].value & AUDIO_DEVICE_BIT_IN) {
 +            if (popcount(list[i].value & ~AUDIO_DEVICE_BIT_IN) != 1)
 +                continue;
@@ -3376,13 +3404,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    return str;
 +}
 +
-+static void droid_port_free(pa_droid_port *p) {
-+    pa_assert(p);
-+
-+    pa_xfree(p->name);
-+    pa_xfree(p->description);
-+    pa_xfree(p);
-+}
 +
 +/* Output device */
 +bool pa_string_convert_output_device_num_to_str(audio_devices_t value, const char **to_str) {
@@ -3412,39 +3433,67 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +
 +/* Flags */
 +bool pa_string_convert_flag_num_to_str(audio_output_flags_t value, const char **to_str) {
-+    return string_convert_num_to_str(string_conversion_table_flag, (uint32_t) value, to_str);
++    return string_convert_num_to_str(string_conversion_table_output_flag, (uint32_t) value, to_str);
 +}
 +
 +bool pa_string_convert_flag_str_to_num(const char *str, audio_output_flags_t *to_value) {
-+    return string_convert_str_to_num(string_conversion_table_flag, str, (uint32_t*) to_value);
++    return string_convert_str_to_num(string_conversion_table_output_flag, str, (uint32_t*) to_value);
 +}
 +
 +char *pa_list_string_flags(audio_output_flags_t flags) {
-+    return list_string(string_conversion_table_flag, flags);
++    return list_string(string_conversion_table_output_flag, flags);
++}
++
++bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source)
++{
++#if DROID_HAL >= 2
++    input_device &= ~AUDIO_DEVICE_BIT_IN;
++#endif
++
++    /* Note converting HAL values to different HAL values! */
++    for (unsigned int i = 0; i < sizeof(conversion_table_default_audio_source) / (sizeof(uint32_t) * 2); i++) {
++        if (conversion_table_default_audio_source[i][0] & input_device) {
++            *default_source = conversion_table_default_audio_source[i][1];
++            return true;
++        }
++    }
++    return false;
 +}
 +
 +/* Config parser */
 +
 +#define WHITESPACE "\n\r \t"
 +
-+static int parse_list(const struct string_conversion *table, const char *str, uint32_t *dst) {
++static int parse_list(const struct string_conversion *table,
++                      const char *str,
++                      uint32_t *dst,
++                      char **unknown_entries) {
 +    int count = 0;
 +    char *entry;
++    char *unknown = NULL;
 +    const char *state = NULL;
 +
 +    pa_assert(table);
 +    pa_assert(str);
 +    pa_assert(dst);
++    pa_assert(unknown_entries);
 +
 +    *dst = 0;
++    *unknown_entries = NULL;
 +
 +    while ((entry = pa_split(str, "|", &state))) {
 +        uint32_t d = 0;
 +
 +        if (!string_convert_str_to_num(table, entry, &d)) {
-+            pa_log("Unknown entry %s", entry);
-+            pa_xfree(entry);
-+            return -1;
++            if (*unknown_entries) {
++                unknown = pa_sprintf_malloc("%s|%s", *unknown_entries, entry);
++                pa_xfree(*unknown_entries);
++                pa_xfree(entry);
++            } else
++                unknown = entry;
++
++            *unknown_entries = unknown;
++            continue;
 +        }
 +
 +        *dst |= d;
@@ -3456,24 +3505,34 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    return count;
 +}
 +
-+static bool parse_sampling_rates(const char *str, uint32_t sampling_rates[32]) {
++static bool parse_sampling_rates(const char *fn, const unsigned ln,
++                                 const char *str, uint32_t sampling_rates[32]) {
++    pa_assert(fn);
++    pa_assert(str);
++
 +    char *entry;
 +    const char *state = NULL;
-+
-+    pa_assert(str);
 +
 +    uint32_t pos = 0;
 +    while ((entry = pa_split(str, "|", &state))) {
 +        int32_t val;
 +
++#if DROID_HAL >= 3
++        if (pos == 0 && pa_streq(entry, "dynamic")) {
++            sampling_rates[pos++] = (uint32_t) -1;
++            pa_xfree(entry);
++            break;
++        }
++#endif
++
 +        if (pos == AUDIO_MAX_SAMPLING_RATES) {
-+            pa_log("Too many sample rate entries (> %d)", AUDIO_MAX_SAMPLING_RATES);
++            pa_log("[%s:%u] Too many sample rate entries (> %d)", fn, ln, AUDIO_MAX_SAMPLING_RATES);
 +            pa_xfree(entry);
 +            return false;
 +        }
 +
 +        if (pa_atoi(entry, &val) < 0) {
-+            pa_log("Bad sample rate value %s", entry);
++            pa_log("[%s:%u] Bad sample rate value %s", fn, ln, entry);
 +            pa_xfree(entry);
 +            return false;
 +        }
@@ -3489,14 +3548,58 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    return true;
 +}
 +
-+static bool parse_formats(const char *str, audio_format_t *formats) {
++static bool check_and_log(const char *fn, const unsigned ln, const char *field,
++                          const int count, const char *str, char *unknown,
++                          const bool must_have_all) {
++    bool fail;
++
++    pa_assert(fn);
++    pa_assert(field);
++    pa_assert(str);
++
++    fail = must_have_all && unknown;
++
++    if (unknown) {
++        pa_log_warn("[%s:%u] Unknown %s entries: %s", fn, ln, field, unknown);
++        pa_xfree(unknown);
++    }
++
++    if (count == 0 || fail) {
++        pa_log("[%s:%u] Failed to parse %s (%s).", fn, ln, field, str);
++        return false;
++    }
++
++    return true;
++}
++
++static bool parse_formats(const char *fn, const unsigned ln,
++                          const char *str, audio_format_t *formats) {
++    int count;
++    char *unknown = NULL;
++
++    pa_assert(fn);
 +    pa_assert(str);
 +    pa_assert(formats);
 +
-+    return parse_list(string_conversion_table_format, str, formats) > 0;
++#if DROID_HAL >= 3
++    /* Needs to be probed later */
++    if (pa_streq(str, "dynamic")) {
++        *formats = 0;
++        return true;
++    }
++#endif
++
++    count = parse_list(string_conversion_table_format, str, formats, &unknown);
++
++    return check_and_log(fn, ln, "formats", count, str, unknown, false);
 +}
 +
-+static int parse_channels(const char *str, bool in_output, audio_channel_mask_t *channels) {
++static int parse_channels(const char *fn, const unsigned ln,
++                          const char *str, bool in_output, audio_channel_mask_t *channels) {
++    int count;
++    char *unknown = NULL;
++
++    pa_assert(fn);
 +    pa_assert(str);
 +    pa_assert(channels);
 +
@@ -3506,45 +3609,79 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +        return true;
 +    }
 +
-+    if (in_output)
-+        return parse_list(string_conversion_table_output_channels, str, channels);
-+    else
-+        return parse_list(string_conversion_table_input_channels, str, channels);
++    count = parse_list(in_output ? string_conversion_table_output_channels
++                                 : string_conversion_table_input_channels,
++                                 str, channels, &unknown);
++
++    return check_and_log(fn, ln, in_output ? "output channel_masks" : "input channel_masks",
++                         count, str, unknown, false);
 +}
 +
-+static bool parse_devices(const char *str, bool in_output, audio_devices_t *devices) {
++static bool parse_devices(const char *fn, const unsigned ln,
++                          const char *str, bool in_output, audio_devices_t *devices, bool must_have_all) {
++    int count;
++    char *unknown = NULL;
++
++    pa_assert(fn);
 +    pa_assert(str);
 +    pa_assert(devices);
 +
-+    if (in_output)
-+        return parse_list(string_conversion_table_output_device, str, devices) > 0;
-+    else
-+        return parse_list(string_conversion_table_input_device, str, devices) > 0;
++    count = parse_list(in_output ? string_conversion_table_output_device
++                                 : string_conversion_table_input_device,
++                                 str, devices, &unknown);
++
++    return check_and_log(fn, ln, in_output ? "output devices" : "input devices",
++                         count, str, unknown, must_have_all);
 +}
 +
-+static bool parse_flags(const char *str, audio_output_flags_t *flags) {
++static bool parse_output_flags(const char *fn, const unsigned ln,
++                        const char *str, audio_output_flags_t *flags) {
++    int count;
++    char *unknown = NULL;
++
++    pa_assert(fn);
 +    pa_assert(str);
 +    pa_assert(flags);
 +
-+    return parse_list(string_conversion_table_flag, str, flags) > 0;
++    count = parse_list(string_conversion_table_output_flag, str, flags, &unknown);
++
++    return check_and_log(fn, ln, "flags", count, str, unknown, false);
 +}
++
++#if DROID_HAL >= 3
++static bool parse_input_flags(const char *fn, const unsigned ln,
++                        const char *str, audio_input_flags_t *flags) {
++    int count;
++    char *unknown = NULL;
++
++    pa_assert(fn);
++    pa_assert(str);
++    pa_assert(flags);
++
++    count = parse_list(string_conversion_table_input_flag, str, flags, &unknown);
++
++    return check_and_log(fn, ln, "flags", count, str, unknown, false);
++}
++#endif
++
++#define MAX_LINE_LENGTH (1024)
 +
 +bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config) {
 +    FILE *f;
-+    int n = 0;
++    unsigned n = 0;
 +    bool ret = true;
++    char *full_line = NULL;
 +
 +    enum config_loc {
-+        IN_ROOT = 0,
-+        IN_GLOBAL = 1,
-+        IN_HW_MODULES = 1,
-+        IN_MODULE = 2,
-+        IN_OUTPUT_INPUT = 3,
-+        IN_CONFIG = 4
++        IN_ROOT             = 0,
++        IN_GLOBAL           = 1,
++        IN_GLOBAL_EXT       = 2,
++        IN_HW_MODULES       = 3,
++        IN_MODULE           = 4,
++        IN_OUTPUT_INPUT     = 5,
++        IN_CONFIG           = 6
 +    } loc = IN_ROOT;
 +
-+
-+    bool in_global = false;
 +    bool in_output = true;
 +
 +    pa_droid_config_hw_module *module = NULL;
@@ -3566,42 +3703,61 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +
 +    pa_lock_fd(fileno(f), 1);
 +
-+    while (!feof(f)) {
-+        char ln[512];
-+        char *d, *v, *val;
++    full_line = pa_xmalloc0(sizeof(char) * MAX_LINE_LENGTH);
 +
-+        if (!fgets(ln, sizeof(ln), f))
++    while (!feof(f)) {
++        char *ln, *d, *v, *value;
++
++        if (!fgets(full_line, MAX_LINE_LENGTH, f))
 +            break;
 +
 +        n++;
 +
-+        pa_strip_nl(ln);
++        pa_strip_nl(full_line);
 +
-+        if (ln[0] == '#' || !*ln )
++        if (!*full_line)
 +            continue;
 +
++        ln = full_line + strspn(full_line, WHITESPACE);
++
++        if (ln[0] == '#')
++            continue;
++
++        v = ln;
++        d = v + strcspn(v, WHITESPACE);
++
++        value = d + strspn(d, WHITESPACE);
++        d[0] = '\0';
++        d = value + strcspn(value, WHITESPACE);
++        d[0] = '\0';
++
 +        /* Enter section */
-+        if (ln[strlen(ln)-1] == '{') {
-+            d = ln+strspn(ln, WHITESPACE);
-+            v = d;
-+            d = v+strcspn(v, WHITESPACE);
-+            d[0] = '\0';
++        if (pa_streq(value, "{")) {
 +
 +            if (!*v) {
-+                pa_log(__FILE__ ": [%s:%u] failed to parse line - too few words", filename, n);
++                pa_log("[%s:%u] failed to parse line - too few words", filename, n);
 +                goto finish;
 +            }
 +
 +            switch (loc) {
 +                case IN_ROOT:
 +                    if (pa_streq(v, GLOBAL_CONFIG_TAG)) {
-+                        in_global = true;
 +                        loc = IN_GLOBAL;
 +                    }
 +                    else if (pa_streq(v, AUDIO_HW_MODULE_TAG))
 +                        loc = IN_HW_MODULES;
 +                    else {
-+                        pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
++                        pa_log("[%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
++                        ret = false;
++                        goto finish;
++                    }
++                    break;
++
++                case IN_GLOBAL:
++                    if (pa_streq(v, GLOBAL_CONFIG_EXT_TAG))
++                        loc = IN_GLOBAL_EXT;
++                    else {
++                        pa_log("[%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
 +                        ret = false;
 +                        goto finish;
 +                    }
@@ -3624,7 +3780,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +                        loc = IN_OUTPUT_INPUT;
 +                        in_output = false;
 +                    } else {
-+                        pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
++                        pa_log("[%s:%u] failed to parse line - unknown field (%s)", filename, n, v);
 +                        ret = false;
 +                        goto finish;
 +                    }
@@ -3651,7 +3807,12 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +                    break;
 +
 +                case IN_CONFIG:
-+                    pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
++                    pa_log("[%s:%u] failed to parse line - unknown field in config (%s)", filename, n, v);
++                    ret = false;
++                    goto finish;
++
++                default:
++                    pa_log("[%s:%u] failed to parse line - unknown section (%s)", filename, n, v);
 +                    ret = false;
 +                    goto finish;
 +            }
@@ -3660,108 +3821,121 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +        }
 +
 +        /* Exit section */
-+        if (ln[strlen(ln)-1] == '}') {
-+            if (loc == IN_ROOT) {
-+                pa_log(__FILE__ ": [%s:%u] failed to parse line - extra closing bracket", filename, n);
-+                ret = false;
-+                goto finish;
-+            }
++        if (pa_streq(v, "}")) {
++            switch (loc) {
++                case IN_ROOT:
++                    pa_log("[%s:%u] failed to parse line - extra closing bracket", filename, n);
++                    ret = false;
++                    goto finish;
 +
-+            loc--;
-+            if (loc == IN_MODULE) {
-+                if (in_output)
-+                    output = NULL;
-+                else
-+                    input = NULL;
-+            }
-+            if (loc == IN_ROOT)
-+                module = NULL;
++                case IN_HW_MODULES:
++                    module = NULL;
++                    /* fall through */
++                case IN_GLOBAL:
++                    loc = IN_ROOT;
++                    break;
 +
-+            in_global = false;
++                case IN_OUTPUT_INPUT:
++                    if (in_output)
++                        output = NULL;
++                    else
++                        input = NULL;
++                    /* fall through */
++                case IN_MODULE:
++                    /* fall through */
++                case IN_CONFIG:
++                    /* fall through */
++                case IN_GLOBAL_EXT:
++                    loc--;
++                    break;
++            }
 +
 +            continue;
 +        }
 +
-+        /* Parse global configuration */
-+        if (in_global) {
++        if (loc == IN_GLOBAL ||
++            loc == IN_GLOBAL_EXT ||
++            loc == IN_CONFIG) {
++
 +            bool success = false;
 +
-+            d = ln+strspn(ln, WHITESPACE);
-+            v = d;
-+            d = v+strcspn(v, WHITESPACE);
++            if (loc == IN_GLOBAL) {
 +
-+            val = d+strspn(d, WHITESPACE);
-+            d[0] = '\0';
-+            d = val+strcspn(val, WHITESPACE);
-+            d[0] = '\0';
++                /* Parse global configuration */
 +
-+            if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
-+                success = parse_devices(val, true, &config->global_config.attached_output_devices);
-+            else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
-+                success = parse_devices(val, true, &config->global_config.default_output_device);
-+            else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
-+                success = parse_devices(val, false, &config->global_config.attached_input_devices);
-+            else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG)) {
-+                pa_log(__FILE__ ": speaker drc is not yet supported, skipping", filename);
-+                success = true;
-+            } else {
-+                pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-+                success = false;
-+            }
-+
-+            if (!success) {
-+                ret = false;
-+                goto finish;
-+            }
-+        }
-+
-+        /* Parse per-output or per-input configuration */
-+        if (loc == IN_CONFIG) {
-+            bool success = false;
-+
-+            pa_assert(module);
-+
-+            d = ln+strspn(ln, WHITESPACE);
-+            v = d;
-+            d = v+strcspn(v, WHITESPACE);
-+
-+            val = d+strspn(d, WHITESPACE);
-+            d[0] = '\0';
-+            d = val+strcspn(val, WHITESPACE);
-+            d[0] = '\0';
-+
-+
-+            if ((in_output && !output) || (!in_output && !input)) {
-+                pa_log(__FILE__ ": [%s:%u] failed to parse line", filename, n);
-+                ret = false;
-+                goto finish;
-+            }
-+
-+            if (pa_streq(v, SAMPLING_RATES_TAG))
-+                success = parse_sampling_rates(val, in_output ? output->sampling_rates : input->sampling_rates);
-+            else if (pa_streq(v, FORMATS_TAG))
-+                success = parse_formats(val, in_output ? &output->formats : &input->formats);
-+            else if (pa_streq(v, CHANNELS_TAG)) {
-+                if (in_output)
-+                    success = (parse_channels(val, true, &output->channel_masks) > 0);
-+                else
-+                    success = (parse_channels(val, false, &input->channel_masks) > 0);
-+            } else if (pa_streq(v, DEVICES_TAG)) {
-+                if (in_output)
-+                    success = parse_devices(val, true, &output->devices);
-+                else
-+                    success = parse_devices(val, false, &input->devices);
-+            } else if (pa_streq(v, FLAGS_TAG)) {
-+                if (in_output)
-+                    success = parse_flags(val, &output->flags);
++                if (pa_streq(v, ATTACHED_OUTPUT_DEVICES_TAG))
++                    success = parse_devices(filename, n, value, true,
++                                            &config->global_config.attached_output_devices, false);
++                else if (pa_streq(v, DEFAULT_OUTPUT_DEVICE_TAG))
++                    success = parse_devices(filename, n, value, true,
++                                            &config->global_config.default_output_device, true);
++                else if (pa_streq(v, ATTACHED_INPUT_DEVICES_TAG))
++                    success = parse_devices(filename, n, value, false,
++                                            &config->global_config.attached_input_devices, false);
++#ifdef DROID_HAVE_DRC
++                // SPEAKER_DRC_ENABLED_TAG is only from Android v4.4
++                else if (pa_streq(v, SPEAKER_DRC_ENABLED_TAG))
++                    /* TODO - Add support for dynamic range control */
++                    success = true; /* Do not fail while parsing speaker_drc_enabled entry */
++#endif
 +                else {
-+                    pa_log(__FILE__ ": [%s:%u] failed to parse line - output flags inside input definition", filename, n);
++                    pa_log("[%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
 +                    success = false;
 +                }
-+            } else {
-+                pa_log(__FILE__ ": [%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
-+                success = false;
-+            }
++
++            } else if (loc == IN_GLOBAL_EXT) {
++
++                /* Parse custom global configuration
++                 * For now just log all custom variables, don't do
++                 * anything with the values.
++                 * TODO: Store custom values somehow */
++
++                pa_log_debug("[%s:%u] TODO custom variable: %s = %s", filename, n, v, value);
++                success = true;
++
++            } else if (loc == IN_CONFIG) {
++
++                /* Parse per-output or per-input configuration */
++
++                if ((in_output && !output) || (!in_output && !input)) {
++                    pa_log("[%s:%u] failed to parse line", filename, n);
++                    ret = false;
++                    goto finish;
++                }
++
++                if (pa_streq(v, SAMPLING_RATES_TAG))
++                    success = parse_sampling_rates(filename, n, value,
++                                                   in_output ? output->sampling_rates : input->sampling_rates);
++                else if (pa_streq(v, FORMATS_TAG))
++                    success = parse_formats(filename, n, value, in_output ? &output->formats : &input->formats);
++                else if (pa_streq(v, CHANNELS_TAG)) {
++                    if (in_output)
++                        success = parse_channels(filename, n, value, true, &output->channel_masks);
++                    else
++                        success = parse_channels(filename, n, value, false, &input->channel_masks);
++                } else if (pa_streq(v, DEVICES_TAG)) {
++                    if (in_output)
++                        success = parse_devices(filename, n, value, true, &output->devices, false);
++                    else
++                        success = parse_devices(filename, n, value, false, &input->devices, false);
++                } else if (pa_streq(v, FLAGS_TAG)) {
++                    if (in_output)
++                        success = parse_output_flags(filename, n, value, &output->flags);
++                    else {
++#if DROID_HAL >= 3
++                        success = parse_input_flags(filename, n, value, &input->flags);
++#else
++                        pa_log("[%s:%u] failed to parse line - output flags inside input definition", filename, n);
++                        success = false;
++#endif
++                    }
++                } else {
++                    pa_log("[%s:%u] failed to parse line - unknown config entry %s", filename, n, v);
++                    success = false;
++                }
++
++            } else
++                pa_assert_not_reached();
 +
 +            if (!success) {
 +                ret = false;
@@ -3777,6 +3951,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +        pa_lock_fd(fileno(f), 0);
 +        fclose(f);
 +    }
++
++    pa_xfree(full_line);
 +
 +    return ret;
 +}
@@ -3867,10 +4043,14 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +
 +    ps = pa_xnew0(pa_droid_profile_set, 1);
 +    ps->config = module->config;
-+    ps->profiles = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_profile_free);
-+    ps->output_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_mapping_free);
-+    ps->input_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_mapping_free);
-+    ps->all_ports = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) droid_port_free);
++    ps->profiles        = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
++                                              NULL, (pa_free_cb_t) pa_droid_profile_free);
++    ps->output_mappings = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
++                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
++    ps->input_mappings  = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
++                                              NULL, (pa_free_cb_t) pa_droid_mapping_free);
++    ps->all_ports       = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func,
++                                              NULL, (pa_free_cb_t) droid_port_free);
 +
 +    /* Each distinct hw module output matches one profile. If there are multiple inputs
 +     * combinations are made so that all possible outputs and inputs can be selected.
@@ -3905,6 +4085,14 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    pa_xfree(ap->name);
 +    pa_xfree(ap->description);
 +    pa_xfree(ap);
++}
++
++static void droid_port_free(pa_droid_port *p) {
++    pa_assert(p);
++
++    pa_xfree(p->name);
++    pa_xfree(p->description);
++    pa_xfree(p);
 +}
 +
 +void pa_droid_profile_set_free(pa_droid_profile_set *ps) {
@@ -3953,9 +4141,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    if (am->profile_set->config->global_config.default_output_device & device)
 +        p->priority += DEFAULT_PRIORITY;
 +
-+    if (check_port_availability(p->name))
-+        p->priority += (DEFAULT_PRIORITY * 3);
-+
 +    return p;
 +}
 +
@@ -3969,8 +4154,6 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    pa_assert(am);
 +
 +    devices = am->output->devices;
-+
-+    devices &= ~AUDIO_DEVICE_OUT_DEFAULT;
 +
 +    /* IHF combo devices, these devices are combined with IHF */
 +    combo_devices = AUDIO_DEVICE_OUT_SPEAKER | AUDIO_DEVICE_OUT_WIRED_HEADPHONE;
@@ -4033,8 +4216,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    pa_assert(am);
 +
 +    devices = am->input->devices;
-+#ifdef HAL_V2
-+    devices &= ~AUDIO_DEVICE_IN_DEFAULT;
++#if DROID_HAL >= 2
++    devices &= ~AUDIO_DEVICE_BIT_IN;
 +#endif
 +
 +    while (devices) {
@@ -4042,8 +4225,10 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +
 +        if (devices & cur_device) {
 +
-+#ifdef HAL_V2
++#if DROID_HAL >= 2
++#ifndef DROID_DEVICE_MAKO
 +            cur_device |= AUDIO_DEVICE_BIT_IN;
++#endif
 +#endif
 +
 +            pa_assert_se(pa_droid_input_port_name(cur_device, &name));
@@ -4060,15 +4245,8 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +                p->priority = DEFAULT_PRIORITY;
 +                p->device = cur_device;
 +
-+                if (am->profile_set->config->global_config.attached_input_devices & cur_device & ~AUDIO_DEVICE_BIT_IN)
++                if (am->profile_set->config->global_config.attached_input_devices & cur_device)
 +                    p->priority += DEFAULT_PRIORITY;
-+
-+                /* Make builtin mic the default input device */
-+                if (cur_device == AUDIO_DEVICE_IN_BUILTIN_MIC)
-+                    p->priority += DEFAULT_PRIORITY;
-+
-+                if (check_port_availability(p->name))
-+                    p->priority += (DEFAULT_PRIORITY * 3);
 +
 +                pa_hashmap_put(am->profile_set->all_ports, p->name, p);
 +            } else
@@ -4147,8 +4325,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    return string_convert_num_to_str(string_conversion_table_input_device_fancy, (uint32_t) value, to_str);
 +}
 +
++bool pa_droid_audio_source_name(audio_source_t value, const char **to_str) {
++    return string_convert_num_to_str(string_conversion_table_audio_source_fancy, (uint32_t) value, to_str);
++}
++
 +static int add_ports(pa_core *core, pa_card_profile *cp, pa_hashmap *ports, pa_droid_mapping *am, pa_hashmap *extra) {
 +    pa_droid_port *p;
++    pa_device_port_new_data dp_data;
 +    pa_device_port *dp;
 +    pa_droid_port_data *data;
 +    uint32_t idx;
@@ -4159,26 +4342,24 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +    PA_IDXSET_FOREACH(p, am->ports, idx) {
 +        if (!(dp = pa_hashmap_get(ports, p->name))) {
 +            pa_log_debug("  New port %s", p->name);
++            pa_device_port_new_data_init(&dp_data);
++            pa_device_port_new_data_set_name(&dp_data, p->name);
++            pa_device_port_new_data_set_description(&dp_data, p->description);
++            pa_device_port_new_data_set_direction(&dp_data, p->mapping->direction);
++            pa_device_port_new_data_set_available(&dp_data, PA_AVAILABLE_YES);
 +
-+            pa_device_port_new_data port_data;
-+            pa_device_port_new_data_init(&port_data);
-+            pa_device_port_new_data_set_name(&port_data, p->name);
-+            pa_device_port_new_data_set_description(&port_data, p->description);
-+            pa_device_port_new_data_set_direction(&port_data, p->mapping->direction);
-+            dp = pa_device_port_new(core, &port_data, sizeof(pa_droid_port_data));
-+            pa_device_port_new_data_done(&port_data);
++            dp = pa_device_port_new(core, &dp_data, sizeof(pa_droid_port_data));
 +            dp->priority = p->priority;
 +
++            pa_device_port_new_data_done(&dp_data);
++
 +            pa_hashmap_put(ports, dp->name, dp);
-+            dp->profiles = pa_hashmap_new_full(pa_idxset_string_hash_func, pa_idxset_string_compare_func, NULL, (pa_free_cb_t) pa_droid_profile_free);
++            dp->profiles = pa_hashmap_new(pa_idxset_string_hash_func, pa_idxset_string_compare_func);
 +
 +            data = PA_DEVICE_PORT_DATA(dp);
 +            data->device = p->device;
 +        } else
 +            pa_log_debug("  Port %s from cache", p->name);
-+
-+        /* If port/jack detection is available, start as not available by default */
-+        dp->available = check_port_availability(p->name) ? PA_AVAILABLE_NO : PA_AVAILABLE_UNKNOWN;
 +
 +        if (cp)
 +            pa_hashmap_put(dp->profiles, cp->name, cp);
@@ -4236,15 +4417,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.c
 +
 +    hw_get_module_by_class(AUDIO_HARDWARE_MODULE_ID, module->name, (const hw_module_t**) &hwmod);
 +    if (!hwmod) {
-+        pa_log("Failed to get hw module id: %s name: %s, trying alternative.", AUDIO_HARDWARE_MODULE_ID, module->name);
-+        hw_get_module_by_class(AUDIO_HARDWARE_MODULE_ID2, module->name, (const hw_module_t**) &hwmod);
-+        if (!hwmod) {
-+            pa_log("Failed to get hw module id: %s name: %s.", AUDIO_HARDWARE_MODULE_ID2, module->name);
-+            goto fail;
-+        }
++        pa_log("Failed to get hw module %s.", module->name);
++        goto fail;
 +    }
 +
-+    pa_log_info("Loaded hw module %s", module->name);
++    pa_log_info("Loaded hw module %s (HAL %d.%d.%d)", module->name, ANDROID_VERSION_MAJOR,
++                                                                    ANDROID_VERSION_MINOR,
++                                                                    ANDROID_VERSION_PATCH);
 +
 +    ret = audio_hw_device_open(hwmod, &device);
 +    if (!device) {
@@ -4395,7 +4574,7 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/droid-util.h
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,274 @@
 +#ifndef foodroidutilfoo
 +#define foodroidutilfoo
 +
@@ -4426,24 +4605,32 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 +#include <pulsecore/core-util.h>
 +#include <pulsecore/macro.h>
 +#include <pulsecore/mutex.h>
-+#include <pulsecore/modargs.h>
 +
-+#include <hardware/audio.h>
-+#include <hardware_legacy/audio_policy_conf.h>
++#include <android-config.h>
++
++#if !defined(ANDROID_VERSION_MAJOR) || !defined(ANDROID_VERSION_MINOR) || !defined(ANDROID_VERSION_PATCH)
++#error "ANDROID_VERSION_* not defined. Did you get your headers via extract-headers.sh?"
++#endif
++
++#if ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 1
++#include "droid-util-41qc.h"
++#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 2
++#include "droid-util-42.h"
++#elif ANDROID_VERSION_MAJOR == 4 && ANDROID_VERSION_MINOR == 4
++#include "droid-util-44.h"
++#elif ANDROID_VERSION_MAJOR == 5 && ANDROID_VERSION_MINOR == 1
++#include "droid-util-51.h"
++#else
++#error "No valid ANDROID_VERSION found."
++#endif
 +
 +#define PROP_DROID_DEVICES    "droid.devices"
 +#define PROP_DROID_FLAGS      "droid.flags"
 +#define PROP_DROID_HW_MODULE  "droid.hw_module"
 +
-+/* Alternative module ID */
-+#define AUDIO_HARDWARE_MODULE_ID2 "libaudio"
-+
-+/* From module-device-restore */
-+#define MODULE_DEVICE_RESTORE_SKIP_PROPERTY "module-device-restore.skip"
-+
 +typedef struct pa_droid_hw_module pa_droid_hw_module;
 +typedef struct pa_droid_card_data pa_droid_card_data;
-+typedef void (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
++typedef int (*common_set_parameters_cb_t)(pa_droid_card_data *card_data, const char *str);
 +
 +typedef struct pa_droid_config_audio pa_droid_config_audio;
 +typedef struct pa_droid_config_hw_module pa_droid_config_hw_module;
@@ -4490,9 +4677,9 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 +    const pa_droid_config_hw_module *module;
 +
 +    char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-+    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
++    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
 +    audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-+    audio_format_t formats;
++    audio_format_t formats; /* 0 -> dynamic */
 +    audio_devices_t devices;
 +    audio_output_flags_t flags;
 +} pa_droid_config_output;
@@ -4501,10 +4688,13 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 +    const pa_droid_config_hw_module *module;
 +
 +    char name[AUDIO_HARDWARE_MODULE_ID_MAX_LEN];
-+    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES];
++    uint32_t sampling_rates[AUDIO_MAX_SAMPLING_RATES]; /* (uint32_t) -1 -> dynamic */
 +    audio_channel_mask_t channel_masks; /* 0 -> dynamic */
-+    audio_format_t formats;
++    audio_format_t formats; /* 0 -> dynamic */
 +    audio_devices_t devices;
++#if DROID_HAL >= 3
++    audio_input_flags_t flags;
++#endif
 +} pa_droid_config_input;
 +
 +struct pa_droid_config_hw_module {
@@ -4623,6 +4813,10 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 +char *pa_list_string_input_device(audio_devices_t devices);
 +char *pa_list_string_flags(audio_output_flags_t flags);
 +
++/* Get default audio source associated with input device.
++ * Return true if default source was found, false if not. */
++bool pa_input_device_default_audio_source(audio_devices_t input_device, audio_source_t *default_source);
++
 +/* Config parser */
 +bool pa_parse_droid_audio_config(const char *filename, pa_droid_config_audio *config);
 +pa_droid_config_audio *pa_droid_config_load(pa_modargs *ma);
@@ -4651,12 +4845,15 @@ Index: pulseaudio-6.0/src/modules/droid/droid-util.h
 +bool pa_droid_output_port_name(audio_devices_t value, const char **to_str);
 +bool pa_droid_input_port_name(audio_devices_t value, const char **to_str);
 +
++/* Pretty audio source names */
++bool pa_droid_audio_source_name(audio_source_t value, const char **to_str);
++
 +#endif
 Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/module-droid-card.c
-@@ -0,0 +1,636 @@
+@@ -0,0 +1,872 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -4714,18 +4911,12 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +#include <pulsecore/device-port.h>
 +#include <pulsecore/idxset.h>
 +
-+#include <hardware/audio.h>
-+#include <system/audio.h>
-+
 +//#include <droid/hardware/audio_policy.h>
 +//#include <droid/system/audio_policy.h>
 +
 +#include "droid-util.h"
 +#include "droid-sink.h"
 +#include "droid-source.h"
-+#ifdef HAVE_UDEV
-+#include "droid-extcon.h"
-+#endif
 +
 +#include "module-droid-card-symdef.h"
 +
@@ -4743,10 +4934,8 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +        "voice_source_routing=<route source ports during voice call, default false> "
 +        "deferred_volume=<synchronize software and hardware volume changes to avoid momentary jumps?> "
 +        "config=<location for droid audio configuration> "
-+        "voice_volume_call_mode=<sink volume controls voice volume during call mode, default false> "
 +        "voice_property_key=<proplist key searched for sink-input that should control voice call volume> "
-+        "voice_property_value=<proplist value for the key for voice control sink-input> "
-+        "voice_virtual_stream=<true/false> create virtual stream for voice call volume control (default false)"
++        "voice_property_value=<proplist value for the key for voice control sink-input>"
 +);
 +
 +static const char* const valid_modargs[] = {
@@ -4756,6 +4945,14 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    "namereg_fail",
 +    "format",
 +    "rate",
++    "channels",
++    "channel_map",
++    "sink_rate",
++    "sink_format",
++    "sink_channel_map",
++    "source_rate",
++    "source_format",
++    "source_channel_map",
 +    "output_flags",
 +    "module_id",
 +    "voice_source_routing",
@@ -4765,25 +4962,29 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    "mute_routing_before",
 +    "mute_routing_after",
 +    "config",
-+    "voice_volume_call_mode",
 +    "voice_property_key",
 +    "voice_property_value",
-+    "voice_virtual_stream",
 +    NULL,
 +};
 +
 +#define DEFAULT_MODULE_ID "primary"
-+#define DEFAULT_AUDIO_POLICY_CONF "/system/etc/audio_policy.conf"
 +#define VOICE_CALL_PROFILE_NAME     "voicecall"
 +#define VOICE_CALL_PROFILE_DESC     "Call mode"
++#define VOICE_RECORD_PROFILE_NAME   "voicecall-record"
++#define VOICE_RECORD_PROFILE_DESC   "Call mode record"
 +#define RINGTONE_PROFILE_NAME       "ringtone"
 +#define RINGTONE_PROFILE_DESC       "Ringtone mode"
 +#define COMMUNICATION_PROFILE_NAME  "communication"
 +#define COMMUNICATION_PROFILE_DESC  "Communication mode"
 +
++struct userdata;
++
++typedef bool (*virtual_profile_event_cb)(struct userdata *u, pa_droid_profile *p, bool enabling);
++
 +struct virtual_profile {
-+    pa_droid_profile *profile;
-+    audio_mode_t mode;
++    pa_card_profile *parent;
++    pa_card_profile *extension;
++    virtual_profile_event_cb event_cb;
 +};
 +
 +struct userdata {
@@ -4799,14 +5000,8 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    pa_droid_hw_module *hw_module;
 +    pa_droid_card_data card_data;
 +
-+    struct virtual_profile call_profile;
-+    struct virtual_profile comm_profile;
-+    struct virtual_profile ring_profile;
 +    pa_droid_profile *old_profile;
-+
-+#ifdef HAVE_UDEV
-+    pa_droid_extcon *extcon;
-+#endif
++    pa_source *voicecall_source;
 +
 +    bool voice_source_routing;
 +
@@ -4816,7 +5011,49 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +
 +struct profile_data {
 +    pa_droid_profile *profile;
++    audio_mode_t mode;
++    bool virtual_profile;
++    /* Variables for virtual profiles: */
++    struct virtual_profile virtual;
 +};
++
++#ifdef DROID_AUDIO_HAL_USE_VSID
++
++/* From hal/voice_extn/voice_extn.c */
++#define AUDIO_PARAMETER_KEY_VSID            "vsid"
++#define AUDIO_PARAMETER_KEY_CALL_STATE      "call_state"
++
++/* From hal/voice_extn/voice_extn.c */
++#define VOICE2_VSID 0x10DC1000
++#define VOLTE_VSID  0x10C02000
++#define QCHAT_VSID  0x10803000
++#define VOWLAN_VSID 0x10002000
++
++/* From hal/voice.h */
++#define BASE_CALL_STATE     1
++#define CALL_INACTIVE       (BASE_CALL_STATE)
++#define CALL_ACTIVE         (BASE_CALL_STATE + 1)
++#define VOICE_VSID  0x10C01000
++
++/* For virtual profiles */
++#define VOICE_SESSION_VOICE1_PROFILE_NAME   "voicecall-voice1"
++#define VOICE_SESSION_VOICE1_PROFILE_DESC   "Call mode, default to voice 1 vsid"
++#define VOICE_SESSION_VOICE2_PROFILE_NAME   "voicecall-voice2"
++#define VOICE_SESSION_VOICE2_PROFILE_DESC   "Call mode, default to voice 2 vsid"
++#define VOICE_SESSION_VOLTE_PROFILE_NAME    "voicecall-volte"
++#define VOICE_SESSION_VOLTE_PROFILE_DESC    "Call mode, default to volte vsid"
++#define VOICE_SESSION_QCHAT_PROFILE_NAME    "voicecall-qchat"
++#define VOICE_SESSION_QCHAT_PROFILE_DESC    "Call mode, default to qchat vsid"
++#define VOICE_SESSION_VOWLAN_PROFILE_NAME   "voicecall-vowlan"
++#define VOICE_SESSION_VOWLAN_PROFILE_DESC   "Call mode, default to vowlan vsid"
++
++static bool voicecall_voice1_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
++static bool voicecall_voice2_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
++static bool voicecall_volte_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
++static bool voicecall_qchat_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
++static bool voicecall_vowlan_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling);
++
++#endif /* DROID_AUDIO_HAL_USE_VSID */
 +
 +static void add_disabled_profile(pa_hashmap *profiles) {
 +    pa_card_profile *cp;
@@ -4831,10 +5068,13 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +}
 +
 +/* Special profile for calls */
-+static pa_droid_profile* add_virtual_profile(struct userdata *u, const char *name, const char *description, pa_hashmap *profiles) {
++static pa_card_profile* add_virtual_profile(struct userdata *u, const char *name, const char *description,
++                                            audio_mode_t audio_mode, virtual_profile_event_cb event_cb,
++                                            pa_available_t available, pa_card_profile *extension_to,
++                                            pa_hashmap *profiles) {
 +    pa_droid_profile *ap;
 +    pa_card_profile *cp;
-+    struct profile_data *d;
++    struct profile_data *d, *ext;
 +
 +    pa_assert(u);
 +    pa_assert(u->profile_set);
@@ -4850,28 +5090,38 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    pa_hashmap_put(u->profile_set->profiles, ap->name, ap);
 +
 +    cp = pa_card_profile_new(ap->name, ap->description, sizeof(struct profile_data));
++    cp->available = available;
 +    d = PA_CARD_PROFILE_DATA(cp);
 +    d->profile = ap;
++    d->virtual_profile = true;
++    d->mode = audio_mode;
++    d->virtual.event_cb = event_cb;
++    d->virtual.extension = NULL;
++    if (extension_to) {
++        ext = PA_CARD_PROFILE_DATA(extension_to);
++        ext->virtual.extension = cp;
++        d->virtual.parent = extension_to;
++    } else
++        d->virtual.parent = NULL;
 +
 +    pa_hashmap_put(profiles, cp->name, cp);
 +
-+    return ap;
++    return cp;
 +}
 +
-+static void set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
++static int set_parameters_cb(pa_droid_card_data *card_data, const char *str) {
 +    struct userdata *u;
++    int ret;
 +
 +    pa_assert(card_data);
++    pa_assert_se((u = card_data->userdata));
 +    pa_assert(str);
 +
-+    u = card_data->userdata;
++    pa_droid_hw_module_lock(u->hw_module);
++    ret = u->hw_module->device->set_parameters(u->hw_module->device, str);
++    pa_droid_hw_module_unlock(u->hw_module);
 +
-+    if (u) {
-+        pa_log_debug("Setting parameters: %s", str);
-+        pa_droid_hw_module_lock(u->hw_module);
-+        u->hw_module->device->set_parameters(u->hw_module->device, str);
-+        pa_droid_hw_module_unlock(u->hw_module);
-+    }
++    return ret;
 +}
 +
 +static void set_card_name(pa_modargs *ma, pa_card_new_data *data, const char *module_id) {
@@ -4906,6 +5156,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    pa_log_debug("Card profile %s", ap->name);
 +
 +    cp = pa_card_profile_new(ap->name, ap->description, sizeof(struct profile_data));
++    cp->available = PA_AVAILABLE_YES;
 +    cp->priority = ap->priority;
 +
 +    cp->n_sinks = 1;
@@ -4919,6 +5170,8 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +
 +    d = PA_CARD_PROFILE_DATA(cp);
 +    d->profile = ap;
++    d->virtual_profile = false;
++    d->mode = AUDIO_MODE_NORMAL;
 +
 +    pa_hashmap_put(h, cp->name, cp);
 +}
@@ -4953,7 +5206,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +
 +    if (d->profile && d->profile->input) {
 +        am = d->profile->input;
-+        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
++        am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
 +    }
 +}
 +
@@ -4999,11 +5252,185 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +        pa_source_set_port(dp->input->source, PA_DROID_INPUT_PARKING, false);
 +}
 +
++static bool voicecall_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
++    pa_card_profile *cp;
++
++    pa_assert(u);
++    pa_assert(p);
++    pa_assert(u->old_profile);
++
++    /* call mode specialities */
++    if (enabling) {
++        pa_droid_sink_set_voice_control(u->old_profile->output->sink, true);
++        if (!u->voice_source_routing)
++            pa_droid_source_set_routing(u->old_profile->input->source, false);
++        if (u->old_profile->input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
++            (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
++            if (cp->available == PA_AVAILABLE_NO) {
++                pa_log_debug("Enable %s profile.", VOICE_RECORD_PROFILE_NAME);
++                pa_card_profile_set_available(cp, PA_AVAILABLE_YES);
++            }
++        }
++    } else {
++        pa_droid_sink_set_voice_control(u->old_profile->output->sink, false);
++        if (!u->voice_source_routing)
++            pa_droid_source_set_routing(u->old_profile->input->source, true);
++        if (u->old_profile->input->input->devices & AUDIO_DEVICE_IN_VOICE_CALL &&
++            (cp = pa_hashmap_get(u->card->profiles, VOICE_RECORD_PROFILE_NAME))) {
++            if (cp->available == PA_AVAILABLE_YES) {
++                pa_log_debug("Disable %s profile.", VOICE_RECORD_PROFILE_NAME);
++                pa_card_profile_set_available(cp, PA_AVAILABLE_NO);
++            }
++        }
++    }
++
++    return true;
++}
++
++static bool voicecall_record_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling) {
++    pa_queue *source_outputs = NULL;
++    pa_droid_mapping *am;
++
++    pa_assert(u);
++    pa_assert(p);
++    pa_assert(u->old_profile);
++
++    am = u->old_profile->input;
++
++    if (enabling) {
++        /* don't do anything if voicecall source has already been created. */
++        if (u->voicecall_source)
++            return true;
++
++        pa_log_info("Enabling voice call record.");
++
++        if (u->old_profile->input) {
++            am = u->old_profile->input;
++
++            if (am->source) {
++                source_outputs = pa_source_move_all_start(am->source, source_outputs);
++                pa_droid_source_free(am->source);
++                am->source = NULL;
++            }
++        }
++
++        u->voicecall_source = pa_droid_source_new(u->module, u->modargs, __FILE__, AUDIO_DEVICE_IN_VOICE_CALL, &u->card_data, am, u->card);
++        if (!u->voicecall_source)
++            pa_log("Failed to enable voice call recording.");
++
++        if (u->voicecall_source && source_outputs) {
++            pa_source_move_all_finish(u->voicecall_source, source_outputs, false);
++            source_outputs = NULL;
++        }
++
++    } else {
++        /* don't do anything if voicecall source has already been destroyed. */
++        if (!u->voicecall_source)
++            return true;
++
++        pa_log_info("Disabling voice call record.");
++
++        source_outputs = pa_source_move_all_start(u->voicecall_source, source_outputs);
++        pa_droid_source_free(u->voicecall_source);
++        u->voicecall_source = NULL;
++
++        if (u->old_profile->input) {
++            am = u->old_profile->input;
++
++            if (!am->source)
++                am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
++
++            if (source_outputs && am->source) {
++                pa_source_move_all_finish(am->source, source_outputs, false);
++                source_outputs = NULL;
++            }
++        }
++    }
++
++    if (source_outputs)
++        pa_source_move_all_fail(source_outputs);
++
++    return true;
++}
++
++#ifdef DROID_AUDIO_HAL_USE_VSID
++static bool voicecall_vsid(struct userdata *u, pa_droid_profile *p, uint32_t vsid, bool enabling)
++{
++    char *setparam;
++
++    voicecall_profile_event_cb(u, p, enabling);
++
++    setparam = pa_sprintf_malloc("%s=%u;%s=%d", AUDIO_PARAMETER_KEY_VSID, vsid,
++                                                AUDIO_PARAMETER_KEY_CALL_STATE,
++                                                enabling ? CALL_ACTIVE : CALL_INACTIVE);
++
++    pa_log_debug("set_parameters(%s)", setparam);
++    u->card_data.set_parameters(&u->card_data, setparam);
++    pa_xfree(setparam);
++
++    return true;
++}
++
++static bool voicecall_voice1_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
++{
++    return voicecall_vsid(u, p, VOICE_VSID, enabling);
++}
++
++static bool voicecall_voice2_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
++{
++    return voicecall_vsid(u, p, VOICE2_VSID, enabling);
++}
++
++static bool voicecall_volte_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
++{
++    return voicecall_vsid(u, p, VOLTE_VSID, enabling);
++}
++
++static bool voicecall_qchat_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
++{
++    return voicecall_vsid(u, p, QCHAT_VSID, enabling);
++}
++
++static bool voicecall_vowlan_vsid_profile_event_cb(struct userdata *u, pa_droid_profile *p, bool enabling)
++{
++    return voicecall_vsid(u, p, VOWLAN_VSID, enabling);
++}
++#endif /* DROID_AUDIO_HAL_USE_VSID */
++
++static void leave_virtual_profile(struct userdata *u, pa_card *c, pa_card_profile *cp, pa_card_profile *new_profile) {
++    struct profile_data *pd, *parent;
++
++    pa_assert(u);
++    pa_assert(c);
++    pa_assert(cp);
++    pa_assert_se((pd = PA_CARD_PROFILE_DATA(cp)));
++
++    if (pd->virtual.parent)
++        pa_log_debug("Leaving extension %s.", cp->name);
++
++    /* First run event for old virtual profile, unless new profile is extension
++     * to the old profile. */
++    if (pd->virtual.extension) {
++        if (pd->virtual.extension != new_profile && pd->virtual.event_cb)
++            pd->virtual.event_cb(u, pd->profile, false);
++    } else {
++        if (pd->virtual.event_cb)
++            pd->virtual.event_cb(u, pd->profile, false);
++    }
++
++    /* If old virtual profile was extension, and new profile is not extensions parent, run event
++     * for extension's parent as well. */
++    if (pd->virtual.parent != new_profile && pd->virtual.parent) {
++        parent = PA_CARD_PROFILE_DATA(pd->virtual.parent);
++
++        if (parent->virtual.event_cb)
++            parent->virtual.event_cb(u, parent->profile, false);
++    }
++}
++
 +static int card_set_profile(pa_card *c, pa_card_profile *new_profile) {
 +    struct userdata *u;
 +    pa_droid_mapping *am;
-+    struct virtual_profile *new_vp = NULL;
-+    struct virtual_profile *old_vp = NULL;
 +    struct profile_data *nd, *od;
 +    pa_queue *sink_inputs = NULL, *source_outputs = NULL;
 +
@@ -5011,57 +5438,48 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    pa_assert(new_profile);
 +    pa_assert_se(u = c->userdata);
 +
++    if (new_profile->available != PA_AVAILABLE_YES) {
++        pa_log("Profile %s is not available.", new_profile->name);
++        return -1;
++    }
++
 +    nd = PA_CARD_PROFILE_DATA(new_profile);
 +    od = PA_CARD_PROFILE_DATA(c->active_profile);
 +
-+    if (nd->profile == u->call_profile.profile)
-+        new_vp = &u->call_profile;
-+    if (nd->profile == u->ring_profile.profile)
-+        new_vp = &u->ring_profile;
-+    if (nd->profile == u->comm_profile.profile)
-+        new_vp = &u->comm_profile;
-+
-+    if (new_vp) {
-+        pa_log_debug("Setting new virtual profile.");
-+        if (u->old_profile == NULL)
++    if (nd->virtual_profile) {
++        /* old_profile should always be real profile. */
++        if (u->old_profile == NULL) {
++            pa_assert(!od->virtual_profile);
 +            u->old_profile = od->profile;
++        }
++
++        if (od->virtual_profile)
++            leave_virtual_profile(u, c, c->active_profile, new_profile);
 +
 +        park_profile(od->profile);
 +
-+        set_mode(u, new_vp->mode);
++        if (nd->mode != od->mode)
++            set_mode(u, nd->mode);
 +
-+        /* call mode specialities */
-+        if (new_vp->profile == u->call_profile.profile) {
-+            pa_droid_sink_set_voice_control(u->old_profile->output->sink, true);
-+            if (!u->voice_source_routing)
-+                pa_droid_source_set_routing(u->old_profile->input->source, false);
-+        }
++        if (od->virtual.parent != new_profile && nd->virtual.event_cb)
++            nd->virtual.event_cb(u, nd->profile, true);
++
 +        return 0;
 +    }
 +
-+    if (od->profile == u->call_profile.profile)
-+        old_vp = &u->call_profile;
-+    if (od->profile == u->ring_profile.profile)
-+        old_vp = &u->ring_profile;
-+    if (od->profile == u->comm_profile.profile)
-+        old_vp = &u->comm_profile;
-+
-+    if (old_vp) {
++    if (od->virtual_profile) {
 +        pa_assert(u->old_profile);
++
++        if (od->virtual_profile)
++            leave_virtual_profile(u, c, c->active_profile, NULL);
 +
 +        park_profile(nd->profile);
 +
-+        set_mode(u, AUDIO_MODE_NORMAL);
-+
-+        /* call mode specialities */
-+        if (old_vp->profile == u->call_profile.profile) {
-+            pa_droid_sink_set_voice_control(u->old_profile->output->sink, false);
-+            if (!u->voice_source_routing)
-+                pa_droid_source_set_routing(u->old_profile->input->source, true);
-+        }
++        if (nd->mode != od->mode)
++            set_mode(u, nd->mode);
 +
 +        /* If new profile is the same as from which we switched to
-+         * call profile, transfer ownership back to that profile.
++         * virtual profile, transfer ownership back to that profile.
 +         * Otherwise destroy sinks & sources and switch to new profile. */
 +        if (nd->profile == u->old_profile) {
 +            u->old_profile = NULL;
@@ -5070,7 +5488,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +            od->profile = u->old_profile;
 +            u->old_profile = NULL;
 +
-+            /* Continue to sink-input transfer below */
++            /* Continue to sink-input/source-output transfer below. */
 +        }
 +    }
 +
@@ -5125,7 +5543,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +        am = nd->profile->input;
 +
 +        if (!am->source)
-+            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, &u->card_data, am, u->card);
++            am->source = pa_droid_source_new(u->module, u->modargs, __FILE__, (audio_devices_t) 0, &u->card_data, am, u->card);
 +
 +        if (source_outputs && am->source) {
 +            pa_source_move_all_finish(am->source, source_outputs, false);
@@ -5150,11 +5568,12 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    const char *module_id;
 +    bool namereg_fail = false;
 +    bool voice_source_routing = false;
++    pa_card_profile *virtual;
 +
 +    pa_assert(m);
 +
 +    if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
-+        pa_log("Failed to parse module argumets.");
++        pa_log("Failed to parse module arguments.");
 +        goto fail;
 +    }
 +
@@ -5208,15 +5627,37 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +        goto fail;
 +    }
 +
-+    u->call_profile.profile = add_virtual_profile(u, VOICE_CALL_PROFILE_NAME,
-+                                                  VOICE_CALL_PROFILE_DESC, data.profiles);
-+    u->call_profile.mode = AUDIO_MODE_IN_CALL;
-+    u->comm_profile.profile = add_virtual_profile(u, COMMUNICATION_PROFILE_NAME,
-+                                                  COMMUNICATION_PROFILE_DESC, data.profiles);
-+    u->comm_profile.mode = AUDIO_MODE_IN_COMMUNICATION;
-+    u->ring_profile.profile = add_virtual_profile(u, RINGTONE_PROFILE_NAME,
-+                                                  RINGTONE_PROFILE_DESC, data.profiles);
-+    u->ring_profile.mode = AUDIO_MODE_RINGTONE;
++    virtual =
++    add_virtual_profile(u, VOICE_CALL_PROFILE_NAME, VOICE_CALL_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_profile_event_cb,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++    add_virtual_profile(u, VOICE_RECORD_PROFILE_NAME, VOICE_RECORD_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_record_profile_event_cb,
++                        PA_AVAILABLE_NO, virtual, data.profiles);
++    add_virtual_profile(u, COMMUNICATION_PROFILE_NAME, COMMUNICATION_PROFILE_DESC,
++                        AUDIO_MODE_IN_COMMUNICATION, NULL,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++    add_virtual_profile(u, RINGTONE_PROFILE_NAME, RINGTONE_PROFILE_DESC,
++                        AUDIO_MODE_RINGTONE, NULL,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++#ifdef DROID_AUDIO_HAL_USE_VSID
++    add_virtual_profile(u, VOICE_SESSION_VOICE1_PROFILE_NAME, VOICE_SESSION_VOICE1_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_voice1_vsid_profile_event_cb,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++    add_virtual_profile(u, VOICE_SESSION_VOICE2_PROFILE_NAME, VOICE_SESSION_VOICE2_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_voice2_vsid_profile_event_cb,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++    /* TODO: Probably enabled state needs to be determined dynamically for VOLTE and friends. */
++    add_virtual_profile(u, VOICE_SESSION_VOLTE_PROFILE_NAME, VOICE_SESSION_VOLTE_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_volte_vsid_profile_event_cb,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++    add_virtual_profile(u, VOICE_SESSION_QCHAT_PROFILE_NAME, VOICE_SESSION_QCHAT_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_qchat_vsid_profile_event_cb,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++    add_virtual_profile(u, VOICE_SESSION_VOWLAN_PROFILE_NAME, VOICE_SESSION_VOWLAN_PROFILE_DESC,
++                        AUDIO_MODE_IN_CALL, voicecall_vowlan_vsid_profile_event_cb,
++                        PA_AVAILABLE_YES, NULL, data.profiles);
++#endif /* DROID_AUDIO_HAL_USE_VSID */
 +
 +    add_disabled_profile(data.profiles);
 +
@@ -5239,10 +5680,6 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +    m->userdata = u;
 +
 +    init_profile(u);
-+
-+#ifdef HAVE_UDEV
-+    u->extcon = pa_droid_extcon_new(m->core, u->card);
-+#endif
 +
 +    return 0;
 +
@@ -5270,10 +5707,6 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-card.c
 +        if (u->card && u->card->sources)
 +            pa_idxset_remove_all(u->card->sources, (pa_free_cb_t) pa_droid_source_free);
 +
-+#ifdef HAVE_UDEV
-+        if (u->extcon)
-+            pa_droid_extcon_free(u->extcon);
-+#endif
 +
 +        if (u->card)
 +            pa_card_free(u->card);
@@ -5297,7 +5730,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-sink.c
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/module-droid-sink.c
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,105 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -5345,25 +5778,27 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-sink.c
 +PA_MODULE_AUTHOR("Juho Hämäläinen");
 +PA_MODULE_DESCRIPTION("Droid sink");
 +PA_MODULE_USAGE("master_sink=<sink to connect to> "
-+                "sink_name=<name of created sink> "
-+                "sco_fake_sink=<name of the fake sco sink used for hsp>");
++                "sink_name=<name of created sink>");
 +PA_MODULE_VERSION(PACKAGE_VERSION);
 +
 +static const char* const valid_modargs[] = {
 +    "rate",
++    "format",
++    "channels",
++    "channel_map",
++    "sink_rate",
++    "sink_format",
++    "sink_channel_map",
 +    "flags",
-+    "devices",
++    "output_devices",
 +    "sink_name",
 +    "module_id",
 +    "mute_routing_before",
 +    "mute_routing_after",
 +    "sink_buffer",
 +    "deferred_volume",
-+    "voice_volume_call_mode",
 +    "voice_property_key",
 +    "voice_property_value",
-+    "voice_virtual_stream",
-+    "sco_fake_sink",
 +    NULL,
 +};
 +
@@ -5382,7 +5817,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-sink.c
 +    pa_assert(m);
 +
 +    if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
-+        pa_log("Failed to parse module argumets.");
++        pa_log("Failed to parse module arguments.");
 +        goto fail;
 +    }
 +
@@ -5405,7 +5840,7 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-source.c
 ===================================================================
 --- /dev/null
 +++ pulseaudio-6.0/src/modules/droid/module-droid-source.c
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,101 @@
 +/*
 + * Copyright (C) 2013 Jolla Ltd.
 + *
@@ -5458,8 +5893,14 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-source.c
 +
 +static const char* const valid_modargs[] = {
 +    "rate",
++    "format",
++    "channels",
++    "channel_map",
++    "source_rate",
++    "source_format",
++    "source_channel_map",
 +    "flags",
-+    "devices",
++    "input_devices",
 +    "source_name",
 +    "module_id",
 +    "source_buffer",
@@ -5482,11 +5923,11 @@ Index: pulseaudio-6.0/src/modules/droid/module-droid-source.c
 +    pa_assert(m);
 +
 +    if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
-+        pa_log("Failed to parse module argumets.");
++        pa_log("Failed to parse module arguments.");
 +        goto fail;
 +    }
 +
-+    if (!(m->userdata = pa_droid_source_new(m, ma, __FILE__, NULL, NULL, NULL)))
++    if (!(m->userdata = pa_droid_source_new(m, ma, __FILE__, (audio_devices_t) 0, NULL, NULL, NULL)))
 +        goto fail;
 +
 +    pa_modargs_free(ma);

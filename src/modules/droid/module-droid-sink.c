@@ -45,25 +45,27 @@
 PA_MODULE_AUTHOR("Juho Hämäläinen");
 PA_MODULE_DESCRIPTION("Droid sink");
 PA_MODULE_USAGE("master_sink=<sink to connect to> "
-                "sink_name=<name of created sink> "
-                "sco_fake_sink=<name of the fake sco sink used for hsp>");
+                "sink_name=<name of created sink>");
 PA_MODULE_VERSION(PACKAGE_VERSION);
 
 static const char* const valid_modargs[] = {
     "rate",
+    "format",
+    "channels",
+    "channel_map",
+    "sink_rate",
+    "sink_format",
+    "sink_channel_map",
     "flags",
-    "devices",
+    "output_devices",
     "sink_name",
     "module_id",
     "mute_routing_before",
     "mute_routing_after",
     "sink_buffer",
     "deferred_volume",
-    "voice_volume_call_mode",
     "voice_property_key",
     "voice_property_value",
-    "voice_virtual_stream",
-    "sco_fake_sink",
     NULL,
 };
 
@@ -82,7 +84,7 @@ int pa__init(pa_module *m) {
     pa_assert(m);
 
     if (!(ma = pa_modargs_new(m->argument, valid_modargs))) {
-        pa_log("Failed to parse module argumets.");
+        pa_log("Failed to parse module arguments.");
         goto fail;
     }
 
