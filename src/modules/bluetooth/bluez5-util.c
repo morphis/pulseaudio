@@ -1158,6 +1158,20 @@ const char *pa_bluetooth_profile_to_string(pa_bluetooth_profile_t profile) {
     return NULL;
 }
 
+const char *pa_bluetooth_transport_state_to_string(pa_bluetooth_transport_state_t state)
+{
+    switch (state) {
+        case PA_BLUETOOTH_TRANSPORT_STATE_DISCONNECTED:
+            return "disconnected";
+        case PA_BLUETOOTH_TRANSPORT_STATE_IDLE:
+            return "idle";
+        case PA_BLUETOOTH_TRANSPORT_STATE_PLAYING:
+            return "playing";
+    }
+
+    return NULL;
+}
+
 static DBusMessage *endpoint_set_configuration(DBusConnection *conn, DBusMessage *m, void *userdata) {
     pa_bluetooth_discovery *y = userdata;
     pa_bluetooth_device *d;
