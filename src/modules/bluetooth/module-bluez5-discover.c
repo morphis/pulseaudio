@@ -38,12 +38,14 @@ PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(true);
 PA_MODULE_USAGE(
     "headset=ofono|native|auto|both "
+    "profile=<a2dp|hsp|hfgw> "
     "sco_sink=<name of sink> "
     "sco_source=<name of source> "
 );
 
 static const char* const valid_modargs[] = {
     "headset",
+    "profile",
     "sco_sink",
     "sco_source",
     NULL
@@ -78,6 +80,15 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y, 
         pa_module *m;
         char *args = pa_sprintf_malloc("path=%s", d->path);
 
+        if (pa_modargs_get_value(u->modargs, "profile", NULL)) {
+            char *profile;
+
+            profile = pa_sprintf_malloc("%s profile=\"%s\"", args,
+                                    pa_modargs_get_value(u->modargs, "profile", NULL));
+            pa_xfree(args);
+            args = profile;
+        }
+
         if (pa_modargs_get_value(u->modargs, "sco_sink", NULL) &&
             pa_modargs_get_value(u->modargs, "sco_source", NULL)) {
             char *tmp;
@@ -88,6 +99,7 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y, 
             pa_xfree(args);
             args = tmp;
         }
+
         pa_log_debug("Loading module-bluez5-device %s", args);
         m = pa_module_load(u->module->core, "module-bluez5-device", args);
         pa_xfree(args);
@@ -182,5 +194,6 @@ void pa__done(pa_module *m) {
 
     if (u->modargs)
         pa_modargs_free(u->modargs);
+
     pa_xfree(u);
 }
