@@ -156,6 +156,7 @@ const char *pa_bluetooth_transport_state_to_string(pa_bluetooth_transport_state_
 #define HEADSET_BACKEND_OFONO 0
 #define HEADSET_BACKEND_NATIVE 1
 #define HEADSET_BACKEND_AUTO 2
+#define HEADSET_BACKEND_BOTH 3
 
 pa_bluetooth_discovery* pa_bluetooth_discovery_get(pa_core *core, int headset_backend);
 pa_bluetooth_discovery* pa_bluetooth_discovery_ref(pa_bluetooth_discovery *y);

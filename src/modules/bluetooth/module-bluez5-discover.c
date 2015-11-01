@@ -37,7 +37,7 @@ PA_MODULE_DESCRIPTION("Detect available BlueZ 5 Bluetooth audio devices and load
 PA_MODULE_VERSION(PACKAGE_VERSION);
 PA_MODULE_LOAD_ONCE(true);
 PA_MODULE_USAGE(
-    "headset=ofono|native|auto"
+    "headset=ofono|native|auto|both "
     "sco_sink=<name of sink> "
     "sco_source=<name of source> "
 );
@@ -106,7 +106,11 @@ static pa_hook_result_t device_connection_changed_cb(pa_bluetooth_discovery *y, 
 }
 
 #ifdef HAVE_BLUEZ_5_NATIVE_HEADSET
+#ifdef HAVE_BLUEZ_5_OFONO_HEADSET
+const char *default_headset_backend = "both";
+#else
 const char *default_headset_backend = "native";
+#endif
 #else
 const char *default_headset_backend = "ofono";
 #endif
@@ -131,8 +135,10 @@ int pa__init(pa_module *m) {
         headset_backend = HEADSET_BACKEND_NATIVE;
     else if (pa_streq(headset_str, "auto"))
         headset_backend = HEADSET_BACKEND_AUTO;
+    else if (pa_streq(headset_str, "both"))
+        headset_backend = HEADSET_BACKEND_BOTH;
     else {
-        pa_log("headset parameter must be either ofono, native or auto (found %s)", headset_str);
+        pa_log("headset parameter must be either ofono, native, auto or both (found %s)", headset_str);
         goto fail;
     }
 

@@ -915,7 +915,9 @@ static void get_managed_objects_reply(DBusPendingCall *pending, void *userdata) 
 
     if (!y->ofono_backend && y->headset_backend != HEADSET_BACKEND_NATIVE)
         y->ofono_backend = pa_bluetooth_ofono_backend_new(y->core, y);
-    if (!y->ofono_backend && !y->native_backend && y->headset_backend != HEADSET_BACKEND_OFONO)
+    if (!y->native_backend && y->headset_backend == HEADSET_BACKEND_BOTH)
+        y->native_backend = pa_bluetooth_native_backend_new(y->core, y);
+    else if (!y->ofono_backend && !y->native_backend)
         y->native_backend = pa_bluetooth_native_backend_new(y->core, y);
 
 finish:
