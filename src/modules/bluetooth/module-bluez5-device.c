@@ -2323,11 +2323,6 @@ static pa_hook_result_t transport_state_changed_cb(pa_bluetooth_discovery *y, pa
     if (t->device == u->device)
         handle_transport_state_change(u, t);
 
-    /* For the case that we've currently the 'off' profile set we need to move
-     * on to a possible configured default profile. */
-    if (u->profile == PA_BLUETOOTH_PROFILE_OFF && pa_bluetooth_device_any_transport_connected(u->device) && u->default_profile)
-        pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, u->default_profile), false);
-
     return PA_HOOK_OK;
 }
 
