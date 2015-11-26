@@ -340,6 +340,23 @@ static DBusMessage *profile_new_connection(DBusConnection *conn, DBusMessage *m,
         goto fail;
     }
 
+    p = PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT;
+    /* We might have support for HSP/HFP at the same time and therefor
+     * need to check if the other side is already setup or not. If it
+     * is we fail here as having both active at the same time is not
+     * supported */
+    if (d->transports[p]) {
+        pa_log_error("Transport for profile %s already registered.",
+                     pa_bluetooth_profile_to_string(p));
+        goto fail;
+    }
+
+    if (pa_hashmap_get(d->uuids, PA_BLUETOOTH_UUID_HFP_HF)) {
+        pa_log_error("Remote device %s supports HFP as well which is preferred over HSP. Aborting.",
+                     d->address);
+        goto fail;
+    }
+
     pa_assert_se(dbus_message_iter_next(&arg_i));
 
     pa_assert(dbus_message_iter_get_arg_type(&arg_i) == DBUS_TYPE_UNIX_FD);
@@ -349,7 +366,6 @@ static DBusMessage *profile_new_connection(DBusConnection *conn, DBusMessage *m,
 
     sender = dbus_message_get_sender(m);
 
-    p = PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT;
     pathfd = pa_sprintf_malloc ("%s/fd%d", path, fd);
     d->transports[p] = t = pa_bluetooth_transport_new(d, sender, pathfd, p, NULL, 0);
     pa_xfree(pathfd);
