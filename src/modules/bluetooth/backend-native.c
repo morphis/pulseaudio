@@ -351,7 +351,8 @@ static DBusMessage *profile_new_connection(DBusConnection *conn, DBusMessage *m,
         goto fail;
     }
 
-    if (pa_hashmap_get(d->uuids, PA_BLUETOOTH_UUID_HFP_HF)) {
+    if (pa_hashmap_get(d->uuids, PA_BLUETOOTH_UUID_HFP_HF) &&
+        pa_bluetooth_device_is_transport_connected(d, PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)) {
         pa_log_error("Remote device %s supports HFP as well which is preferred over HSP. Aborting.",
                      d->address);
         goto fail;

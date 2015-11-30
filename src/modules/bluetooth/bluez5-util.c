@@ -299,6 +299,12 @@ bool pa_bluetooth_device_any_transport_connected(const pa_bluetooth_device *d) {
     return false;
 }
 
+bool pa_bluetooth_device_is_transport_connected(const pa_bluetooth_device *d, pa_bluetooth_profile_t profile) {
+    pa_assert(d);
+
+    return d->transports[profile] && d->transports[profile]->state == PA_BLUETOOTH_TRANSPORT_STATE_IDLE;
+}
+
 static int transport_state_from_string(const char* value, pa_bluetooth_transport_state_t *state) {
     pa_assert(value);
     pa_assert(state);
