@@ -2317,10 +2317,15 @@ static void set_default_profile_cb(pa_mainloop_api *api, pa_defer_event *e, void
 
     pa_log_debug("Setting default profile %s", u->default_profile);
 
-    pa_assert_se(pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, u->default_profile), false) >= 0);
+    if (pa_card_set_profile(u->card, pa_hashmap_get(u->card->profiles, u->default_profile), false) < 0) {
+        pa_log_error("Failed to set default profile %s. Will retry later.", u->default_profile);
+        goto done;
+    }
+
     pa_xfree(u->default_profile);
     u->default_profile = NULL;
 
+done:
     api->defer_enable(e, 0);
 }
 
